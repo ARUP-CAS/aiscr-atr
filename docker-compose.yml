@@ -32,9 +32,12 @@ services:
       - ./config:/app/config:ro
 
   layout:
-    # Na CPU stačí (~0,6 s na stranu). Pro GPU: build arg TORCH_INDEX a blok `deploy` jako u ocr-text.
-    build: models/layout-ppdoclayoutv3
-    image: ghcr.io/arup-cas/aiscr-atr-layout-ppdoclayoutv3:dev
+    # ONNX Runtime na CPU (~0,6 s na stranu, obraz bez PyTorch). Pro GPU varianta
+    # s PyTorch: dockerfile Dockerfile, build arg TORCH_INDEX a blok `deploy` jako u ocr-text.
+    build:
+      context: models/layout-ppdoclayoutv3
+      dockerfile: Dockerfile.onnx
+    image: ghcr.io/arup-cas/aiscr-atr-layout-ppdoclayoutv3:dev-onnx
     environment:
       THRESHOLD: "0.3"
       DEDUPE_IOU: "0.9"

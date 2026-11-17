@@ -5,7 +5,7 @@ Jeden model = jedna složka = jeden obraz. Rozhraní je v
 
 | Složka | Model | Licence | Stav |
 |---|---|---|---|
-| `layout-ppdoclayoutv3/` | PP-DocLayoutV3 (`PaddlePaddle/PP-DocLayoutV3_safetensors`, připnutá revize) přes transformers | Apache-2.0 | hotovo; CPU i GPU |
+| `layout-ppdoclayoutv3/` | PP-DocLayoutV3 (`PaddlePaddle/PP-DocLayoutV3_safetensors`, připnutá revize); `Dockerfile.onnx` = ONNX Runtime na CPU (výchozí, 773 MB), `Dockerfile` = PyTorch pro GPU (2,3 GB) | Apache-2.0 | hotovo |
 | `ocr-paddleocr-vl/` | PaddleOCR-VL-1.6 za vLLM | Apache-2.0 | fáze 4; zatím jen služba v `docker-compose.yml` |
 | `ocr-glm-ocr/` | GLM-OCR za vLLM | MIT | fáze 4; zatím jen služba v `docker-compose.yml` |
 | `pageclass-vit/` | `ufal/vit-historical-page` (ATRIUM, ÚFAL) | MIT | fáze 7 |
