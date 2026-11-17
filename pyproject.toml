@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "reportlab>=4,<5"]
+training = ["pyarrow>=17"]
 
 [build-system]
 requires = ["hatchling"]
