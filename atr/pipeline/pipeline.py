@@ -11,6 +11,7 @@ a `config/pipeline.yaml`.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 
 from atr.config import Components, PipelineConfig
 from atr.ports.errors import DependencyError
@@ -50,10 +51,18 @@ class Pipeline:
     # --- veřejné API -------------------------------------------------------
 
     def run(self, document: DocumentInput) -> dict:
+        return self.run_with_paradata(document)[0]
+
+    def run_with_paradata(self, document: DocumentInput) -> tuple[dict, dict]:
+        """Výstup `atr/docproc-json` a k němu paradata (atr.paradata)."""
+        from atr import paradata
+
         result = self.process(document)
-        return self.c["assembler"].assemble(result)
+        output = self.c["assembler"].assemble(result)
+        return output, paradata.build(result, output)
 
     def process(self, document: DocumentInput) -> DocumentResult:
+        started = _now()
         doc = self.c["page_source"].open(document)
         try:
             known = {g.number for g in doc.pages}
@@ -66,7 +75,8 @@ class Pipeline:
         finally:
             doc.close()
 
-        return DocumentResult(document=document, pages=pages, components=self._components_info())
+        return DocumentResult(document=document, pages=pages, components=self._components_info(),
+                              started_at=started, finished_at=_now())
 
     # --- jedna strana ------------------------------------------------------
 
@@ -167,6 +177,10 @@ class Pipeline:
         infos = [a.info() for a in self.c.adapters.values()]
         infos += [r.info() for r in self.c.recognizers.values()]
         return infos
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _reading_key(block: LayoutBlock) -> tuple:

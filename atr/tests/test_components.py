@@ -127,3 +127,12 @@ def test_crop_masks_neighbouring_blocks():
     assert out.getpixel((50, 30)) == 0
     assert out.getpixel((50, 55)) == 255
     assert out.getpixel((50, 47)) == 0  # překryv s vlastním blokem se nezabílí
+
+
+def test_lingua_language_detector():
+    from atr.adapters.language.lingua_detector import LinguaLanguageDetector
+
+    d = LinguaLanguageDetector()
+    assert d.detect("Archeologický výzkum pohřebiště nitranské skupiny pokračoval.")[0] == "cs"
+    assert d.detect("Die Ausgrabung der Siedlung wurde fortgesetzt.")[0] == "de"
+    assert d.detect("1987 / 12") is None  # bez písmen jazyk neurčujeme

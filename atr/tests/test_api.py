@@ -91,3 +91,21 @@ def test_layout_adapter_converts_pixels_to_points_and_maps_labels():
     assert [b.type.value for b in blocks] == ["heading", "other"]  # nízká jistota vypadla
     assert (blocks[0].bbox.x0, blocks[0].bbox.y1) == pytest.approx((72.0, 54.0))  # px × 72/200
     assert blocks[0].source_label == "paragraph_title"
+
+
+def test_convert_returns_paradata_with_matching_hash(monkeypatch):
+    import hashlib
+
+    from atr.tests.test_pipeline import DOC, make_pipeline
+
+    monkeypatch.setattr(api, "get_pipeline", lambda: make_pipeline())
+    client = TestClient(api.app)
+    plain = client.post("/convert", files={"file": ("d.json", json.dumps(DOC), "application/json")})
+    assert plain.status_code == 200 and "pageCount" in plain.json()
+    both = client.post("/convert", files={"file": ("d.json", json.dumps(DOC), "application/json")},
+                       data={"paradata": "true", "sha512": "abc"})
+    body = both.json()
+    action = body["paradata"]["@graph"][0]
+    assert action["object"][0]["sha512"] == "abc"
+    canonical = json.dumps(body["docproc"], ensure_ascii=False, separators=(",", ":")).encode()
+    assert action["result"][0]["sha512"] == hashlib.sha512(canonical).hexdigest()

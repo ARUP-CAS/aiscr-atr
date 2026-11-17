@@ -63,12 +63,14 @@ def convert(args: argparse.Namespace) -> int:
 
     cfg = config.load(args.config)
     try:
-        out = Pipeline(cfg, config.build(cfg)).run(_document(args.file, args.forced))
+        out, para = Pipeline(cfg, config.build(cfg)).run_with_paradata(_document(args.file, args.forced))
     except PipelineError as exc:
         print(json.dumps({"reason": exc.reason, "detail": exc.detail, "pages": exc.pages}), file=sys.stderr)
         return 2
     json.dump(out, sys.stdout, ensure_ascii=False, indent=1)
     print()
+    if args.paradata:
+        Path(args.paradata).write_text(json.dumps(para, ensure_ascii=False, indent=1), encoding="utf-8")
     return 0
 
 
@@ -89,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("file")
     p.add_argument("--config", default="config/pipeline.yaml")
     p.add_argument("--forced", nargs="*")
+    p.add_argument("--paradata", help="uložit paradata do souboru (JSON-LD)")
     p.set_defaults(func=convert)
 
     args = parser.parse_args(argv)

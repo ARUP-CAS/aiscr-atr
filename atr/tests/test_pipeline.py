@@ -156,3 +156,24 @@ def test_unavailable_recognizer_is_not_a_recognition_failure():
     pipeline.c.recognizers["text"] = OpenAIBlockRecognizer("http://127.0.0.1:9/v1", "m", "OCR:", timeout_s=2)
     with pytest.raises(DependencyError):
         pipeline.run(doc())
+
+
+def test_paradata_describe_run_and_hash_output():
+    import hashlib
+
+    from atr.paradata import canonical_json
+
+    output, para = make_pipeline().run_with_paradata(doc({4: "needs_atr"}))
+    action = para["@graph"][0]
+    assert action["@type"] == "CreateAction"
+    assert action["result"][0]["sha512"] == hashlib.sha512(canonical_json(output)).hexdigest()
+    assert action["wfrun:summary"]["routes"] == {"digital": 1, "ocr": 1, "empty": 1, "forced": 1}
+    assert action["wfrun:summary"]["forced_pages"] == {"4": "needs_atr"}
+    ports = {i["additionalType"] for i in action["instrument"]}
+    assert {"layout", "router", "assembler"} <= ports
+    assert action["startTime"] and action["endTime"]
+
+
+def test_document_language_from_blocks():
+    out = make_pipeline().run(doc())
+    assert out["documentLanguage"] == "cs"

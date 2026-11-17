@@ -73,12 +73,26 @@ class DocprocAssembler:
                 out["blocks"].append(b)
             pages.append(out)
 
-        return {
+        out = {
             "version": CONTRACT_VERSION,
             "pageCount": len(result.pages),
             "metadata": {"routing": {"pages": routing}},
             "pages": pages,
         }
+        language = _document_language(result)
+        if language:
+            out["documentLanguage"] = language
+        return out
 
     def info(self) -> ComponentInfo:
         return ComponentInfo("assembler", "docproc", __version__, {"contract_version": CONTRACT_VERSION})
+
+
+def _document_language(result: DocumentResult) -> str | None:
+    """Jazyk s největším množstvím textu napříč bloky."""
+    weight: dict[str, int] = {}
+    for page in result.pages:
+        for block in page.blocks:
+            if block.language:
+                weight[block.language] = weight.get(block.language, 0) + len(block.text)
+    return max(weight, key=weight.get) if weight else None

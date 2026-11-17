@@ -10,10 +10,11 @@ import os
 from functools import lru_cache
 
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from atr import __version__, config, registry
 from atr.adapters.assembler.docproc import CONTRACT_VERSION
+from atr.paradata import canonical_json
 from atr.pipeline import Pipeline, PipelineError
 from atr.ports.errors import DependencyError, InputError
 from atr.ports.types import DocumentInput
@@ -56,7 +57,8 @@ async def convert(
     file: UploadFile = File(...),
     forced_pages: str = Form("{}", description='JSON {"číslo strany": "důvod"}'),
     sha512: str | None = Form(None),
-) -> JSONResponse:
+    paradata: bool = Form(False, description="vrátit {docproc, paradata} místo samotného výstupu"),
+) -> Response:
     try:
         forced = {int(k): str(v) for k, v in json.loads(forced_pages).items()}
     except (ValueError, AttributeError) as exc:
@@ -70,7 +72,13 @@ async def convert(
         forced_pages=forced,
     )
     try:
-        return JSONResponse(get_pipeline().run(document))
+        output, para = get_pipeline().run_with_paradata(document)
+        if paradata:
+            # docproc jako kanonické bajty, aby seděl otisk SHA-512 v paradatech
+            body = b'{"docproc":' + canonical_json(output) + b',"paradata":' + canonical_json(para) + b"}"
+        else:
+            body = canonical_json(output)
+        return Response(body, media_type="application/json")
     except InputError as exc:
         return _error(422, exc.reason, exc.detail)
     except DependencyError as exc:

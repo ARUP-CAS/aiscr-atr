@@ -73,7 +73,12 @@ ports:
 
   # nepovinné porty, zapnou se odkomentováním
   # page_classifier: {adapter: http, params: {url: http://pageclass:8000}}
-  # language: {adapter: fasttext}
+
+  # jazyk bloků a dokumentu (lingua-py, Apache-2.0, offline)
+  language:
+    adapter: lingua
+    params: {languages: [cs, sk, de, en, la, pl, fr], min_confidence: 0.5}
+
 
 # Rozpoznávače bloků. Jeden rozpoznávač = jeden model a jedna úloha.
 recognizers:

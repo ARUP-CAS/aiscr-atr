@@ -250,6 +250,8 @@ class DocumentResult:
     document: DocumentInput
     pages: list[PageResult]
     components: list[ComponentInfo]
+    started_at: str | None = None  # ISO 8601, UTC; pro paradata
+    finished_at: str | None = None
 
 
 # --- Popis komponent pro paradata ------------------------------------------
