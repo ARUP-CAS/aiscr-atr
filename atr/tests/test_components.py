@@ -136,3 +136,25 @@ def test_lingua_language_detector():
     assert d.detect("Archeologický výzkum pohřebiště nitranské skupiny pokračoval.")[0] == "cs"
     assert d.detect("Die Ausgrabung der Siedlung wurde fortgesetzt.")[0] == "de"
     assert d.detect("1987 / 12") is None  # bez písmen jazyk neurčujeme
+
+
+def test_judge_private_use_and_unmapped_glyphs_are_garbled():
+    judge = RulesTextLayerJudge()
+    pua = "".join(chr(0xE000 + i % 50) for i in range(60))
+    assert judge.judge(layer((pua + " slovo slovo", (0, 0, 400, 12))), G).verdict is TextLayerVerdict.GARBLED
+    sentence = ("Nálezová zpráva o výzkumu sídliště z doby bronzové a o nálezech keramiky v sondě S2 "
+                "byla odevzdána do archivu.")
+    ok = layer((sentence, (0, 0, 400, 12)))
+    broken = TextLayer(1, ok.lines, unmapped_chars=20)
+    assert judge.judge(ok, G).verdict is TextLayerVerdict.DIGITAL
+    assert judge.judge(broken, G).verdict is TextLayerVerdict.GARBLED
+
+
+def test_judge_old_ocr_layer():
+    ok = layer(("Nálezová zpráva o výzkumu sídliště z doby bronzové a o nálezech keramiky.", (0, 0, 400, 12)))
+    n = sum(not c.isspace() for c in ok.text)
+    old = TextLayer(1, ok.lines, invisible_chars=n, image_coverage=0.95)
+    assert RulesTextLayerJudge().judge(old, G).verdict is TextLayerVerdict.OCR
+    # neviditelný text bez obrázku (např. skrytá vrstva v born-digital PDF) není OCR vrstva
+    hidden = TextLayer(1, ok.lines, invisible_chars=n, image_coverage=0.0)
+    assert RulesTextLayerJudge().judge(hidden, G).verdict is not TextLayerVerdict.OCR

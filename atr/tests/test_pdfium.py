@@ -172,3 +172,22 @@ def test_pipeline_on_mixed_pdf(samples):
     assert generate.MARKER in out["pages"][0]["blocks"][0]["content"]
     assert out["pages"][1]["blocks"][0]["content"] == "rozpoznaný text"
     json.dumps(out)  # výstup jde serializovat
+
+
+@pytest.mark.parametrize("name", ["old_ocr", "garbled_mojibake", "garbled_spaced", "garbled_glued",
+                                  "garbled_nonsense", "born_digital", "rotated_90", "scan"])
+def test_text_layer_verdicts(samples, name):
+    """Starší OCR vrstva → ocr, nekvalitní text → garbled, dobrý text → digital, sken → none."""
+    from atr.adapters.text_layer_judge.rules import RulesTextLayerJudge
+
+    root, expected = samples
+    if name not in expected:
+        pytest.skip("vzorek vyžaduje písmo s češtinou")
+    doc = _open(root / f"{name}.pdf")
+    try:
+        layer = PdfiumTextLayerReader().read(doc, 1)
+        verdict = RulesTextLayerJudge().judge(layer, doc.pages[0])
+    finally:
+        doc.close()
+    want = expected[name].get("verdict") or {"scan": "none"}.get(name, "digital")
+    assert verdict.verdict.value == want, verdict.reason

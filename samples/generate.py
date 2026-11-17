@@ -17,9 +17,10 @@ import os
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, NumberObject, RectangleObject
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
@@ -111,10 +112,11 @@ def _pdf_from(data: bytes, *, rotation: int = 0, crop: list[float] | None = None
 def _scan_image(text_lines: list[str], dpi: int = 150) -> Image.Image:
     img = Image.new("L", (int(W / 72 * dpi), int(H / 72 * dpi)), 255)
     draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default(size=max(12, dpi // 6))  # zhruba 12 pt, čitelné pro rozvržení
     y = dpi
     for line in text_lines:
-        draw.text((dpi, y), line, fill=0)
-        y += dpi // 4
+        draw.text((dpi, y), line, fill=0, font=font)
+        y += dpi // 3
     return img
 
 
@@ -149,11 +151,12 @@ def generate(out: Path) -> dict:
     add("user_unit_2", user_unit=2.0)
 
     # Sken: strana jen s obrázkem, bez textové vrstvy.
-    scan = _scan_image(["Nalezova zprava", "Sonda S2 zachytila kulturni vrstvu."])
+    scan = _scan_image(["Nalezova zprava", "Sonda S2 zachytila kulturni vrstvu o mocnosti 40 cm.",
+                        "Ve vyplni objektu 12 se nachazely zlomky mazanice a zvireci kosti.",
+                        "Dokumentace byla porizena v meritku 1:20 a ulozena v archivu."] * 3)
     img_buf = io.BytesIO()
     scan.save(img_buf, format="PNG")
     c = canvas.Canvas(str(out / "scan.pdf"), pagesize=(W, H))
-    from reportlab.lib.utils import ImageReader
 
     c.drawImage(ImageReader(io.BytesIO(img_buf.getvalue())), 0, 0, W, H)
     c.showPage()
@@ -177,6 +180,50 @@ def generate(out: Path) -> dict:
     frames = [scan, scan.rotate(0)]
     frames[0].save(out / "two_pages.tiff", save_all=True, append_images=frames[1:], dpi=(150, 150))
     expected["two_pages.tiff"] = {"pages": 2, "source_pixels": list(scan.size)}
+
+    # Starší OCR vrstva: sken a pod ním neviditelný text (PDF režim vykreslení 3).
+    c = canvas.Canvas(str(out / "old_ocr.pdf"), pagesize=(W, H))
+    c.drawImage(ImageReader(io.BytesIO(img_buf.getvalue())), 0, 0, W, H)
+    t = c.beginText(72, H - 120)
+    t.setTextRenderMode(3)
+    t.setFont(font, 11)
+    for _ in range(12):
+        t.textLine(CZECH if czech else "Nalezova zprava o vyzkumu sidliste z doby bronzove.")
+    c.drawText(t)
+    c.showPage()
+    c.save()
+    expected["old_ocr"] = {"pages": 1, "verdict": "ocr"}
+
+    # Neúplná textová vrstva: text je jen v horní části, zbytek strany je sken textu.
+    c = canvas.Canvas(str(out / "partial_text.pdf"), pagesize=(W, H))
+    c.drawImage(ImageReader(io.BytesIO(img_buf.getvalue())), 0, 0, W, H * 0.8)
+    c.setFont(font, 11)
+    c.drawString(72, H - 60, CZECH if czech else "Nalezova zprava c. 123/87.")
+    c.showPage()
+    c.save()
+    expected["partial_text"] = {"pages": 1}
+
+    # Nekvalitní digitální vrstvy (text je v PDF, ale nepoužitelný).
+    good = CZECH if czech else "Archeologicky vyzkum odkryl sidliste z mladsi doby bronzove a nalezy keramiky."
+    variants = {
+        "garbled_mojibake": good.encode("utf-8").decode("latin-1") if czech else None,
+        "garbled_spaced": " ".join(good.replace(" ", "")),
+        "garbled_glued": good.replace(" ", ""),
+        # Znaky ze soukromé oblasti Unicode reportlab do PDF nezapíše; ty testuje přímo test verdiktu.
+        "garbled_nonsense": "xkcd grfl tzpq wvbn hjkl qrst mnbv zxcv plkm frtg bvcx nmlk qwrt zzxc vbnm",
+    }
+    for name, line in variants.items():
+        if line is None:
+            continue
+        c = canvas.Canvas(str(out / f"{name}.pdf"), pagesize=(W, H))
+        c.setFont(font, 11)
+        y = H - 100
+        for _ in range(10):
+            c.drawString(72, y, line[:95])
+            y -= 16
+        c.showPage()
+        c.save()
+        expected[name] = {"pages": 1, "verdict": "garbled"}
 
     (out / "expected.json").write_text(json.dumps(expected, indent=1, ensure_ascii=False), encoding="utf-8")
     return expected

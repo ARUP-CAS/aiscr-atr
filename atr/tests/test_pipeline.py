@@ -177,3 +177,28 @@ def test_paradata_describe_run_and_hash_output():
 def test_document_language_from_blocks():
     out = make_pipeline().run(doc())
     assert out["documentLanguage"] == "cs"
+
+
+def test_incomplete_text_layer_goes_to_ocr():
+    """Text jen v jednom ze dvou stejně velkých textových bloků → pokrytí 0,5 → OCR."""
+    spec = {"pages": [{"text_lines": [{"text": DIGITAL_TEXT, "bbox": [72, 100, 520, 115]}]}]}
+    raw = {
+        "ports": {
+            "page_source": {"adapter": "fake"}, "renderer": {"adapter": "fake"},
+            "text_layer": {"adapter": "fake"}, "text_layer_judge": {"adapter": "rules"},
+            "router": {"adapter": "rules"},
+            "layout": {"adapter": "fake", "params": {"blocks_by_page": {1: [
+                {"type": "text", "bbox": [70, 95, 525, 120], "order": 0},
+                {"type": "text", "bbox": [70, 300, 525, 325], "order": 1}]}}},
+            "text_assigner": {"adapter": "overlap"}, "assembler": {"adapter": "docproc"},
+        },
+        "recognizers": {"text": {"adapter": "fake"}},
+        "recognize": {"text": "text"},
+        "pipeline": {"render_dpi": 72},
+    }
+    cfg = config.parse(raw)
+    out = Pipeline(cfg, config.build(cfg)).run(DocumentInput(json.dumps(spec).encode(), "x.json"))
+    entry = out["metadata"]["routing"]["pages"][0]
+    assert entry["route"] == "ocr"
+    assert entry["reason"].startswith("text_layer_incomplete")
+    assert [b["content"] for b in out["pages"][0]["blocks"]] == ["rozpoznaný text"] * 2

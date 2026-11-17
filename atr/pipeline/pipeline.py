@@ -111,7 +111,15 @@ class Pipeline:
             page.blocks = self.c["text_assigner"].assign(layer, layout)
             for block in page.blocks:
                 block.text_source = Route.DIGITAL
-        else:
+            coverage = self._text_coverage(layout, page.blocks)
+            if coverage is not None and coverage < self.config.min_text_coverage:
+                # Textová vrstva pokrývá jen část textových bloků (např. vložený sken,
+                # nevykreslitelné písmo): strana jde celá na OCR.
+                decision = RouteDecision(number, Route.OCR, f"text_layer_incomplete coverage={coverage:.2f}")
+                page.decision = decision
+                page.blocks = []
+
+        if decision.route is not Route.DIGITAL:
             try:
                 jobs = [(block, i) for i, block in enumerate(layout)]
 
@@ -131,6 +139,17 @@ class Pipeline:
 
         self._languages(page)
         return page
+
+    def _text_coverage(self, layout: list[LayoutBlock], blocks: list[Block]) -> float | None:
+        """Podíl plochy čitelných bloků rozvržení, do kterých textová vrstva dala text."""
+        total = covered = 0.0
+        for block, assigned in zip(layout, blocks):  # assign vrací bloky ve stejném pořadí
+            if block.type not in self.config.recognize:
+                continue  # obrázky apod. text z vrstvy mít nemusí
+            total += block.bbox.area
+            if assigned.text.strip():
+                covered += block.bbox.area
+        return covered / total if total > 0 else None
 
     def _layout(self, image: PageImage, geometry) -> list[LayoutBlock]:
         """Rozvržení → (úprava geometrie) → pořadí čtení."""

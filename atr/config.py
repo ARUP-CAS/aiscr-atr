@@ -44,6 +44,9 @@ class PipelineConfig:
     recognize_concurrency: int = 1
     # Ve výřezu bloku zabílit části, které patří sousedním čitelným blokům.
     mask_neighbours: bool = True
+    # Strana s textovou vrstvou jde na OCR, když text pokryje méně než tento podíl plochy
+    # čitelných bloků rozvržení (neúplná vrstva).
+    min_text_coverage: float = 0.6
 
 
 class ConfigError(ValueError):
@@ -88,6 +91,7 @@ def parse(raw: dict[str, Any]) -> PipelineConfig:
         crop_padding_pt=float(pipeline.get("crop_padding_pt", 2)),
         recognize_concurrency=int(pipeline.get("recognize_concurrency", 1)),
         mask_neighbours=bool(pipeline.get("mask_neighbours", True)),
+        min_text_coverage=float(pipeline.get("min_text_coverage", 0.6)),
     )
 
 

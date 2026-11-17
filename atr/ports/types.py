@@ -114,6 +114,10 @@ class TextLayer:
     lines: tuple[Line, ...]
     # Znaky, které čtečka nedokázala převést na Unicode (vadné mapování písma).
     unmapped_chars: int = 0
+    # Znaky s neviditelným vykreslením (PDF režim 3): typicky OCR vrstva pod skenem.
+    invisible_chars: int = 0
+    # Podíl plochy strany pokrytý rastrovými obrázky (0–1).
+    image_coverage: float = 0.0
 
     @property
     def text(self) -> str:

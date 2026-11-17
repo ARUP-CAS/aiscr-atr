@@ -5,6 +5,7 @@ Sdílejí jeden otevřený dokument (`document.py`), proto jsou v jedné složce
 
 from __future__ import annotations
 
+import ctypes
 import io
 
 import pypdfium2 as pdfium
@@ -89,6 +90,8 @@ class PdfiumTextLayerReader:
         words: list[Word] = []
         chars: list[tuple[str, BBox]] = []
         unmapped = 0
+        invisible = 0
+        render_mode: dict[int, int] = {}  # adresa textového objektu → režim vykreslení
 
         def flush_word() -> None:
             if chars:
@@ -117,6 +120,13 @@ class PdfiumTextLayerReader:
                 continue
             if pdfium_c.FPDFText_HasUnicodeMapError(textpage, i):
                 unmapped += 1
+            obj = pdfium_c.FPDFText_GetTextObject(textpage, i)
+            if obj:
+                key = ctypes.cast(obj, ctypes.c_void_p).value or 0
+                if key not in render_mode:
+                    render_mode[key] = pdfium_c.FPDFTextObj_GetTextRenderMode(obj)
+                if render_mode[key] == pdfium_c.FPDF_TEXTRENDERMODE_INVISIBLE:
+                    invisible += 1
             if pdfium_c.FPDFText_IsHyphen(textpage, i):
                 ch = "-"
             left, bottom, right, top = textpage.get_charbox(i, loose=True)
@@ -124,7 +134,29 @@ class PdfiumTextLayerReader:
             xs, ys = [c[0] for c in corners], [c[1] for c in corners]
             chars.append((ch, BBox(min(xs), min(ys), max(xs), max(ys))))
         flush_line()
-        return TextLayer(page, tuple(lines), unmapped)
+        return TextLayer(page, tuple(lines), unmapped, invisible, _image_coverage(p))
 
     def info(self) -> ComponentInfo:
         return ComponentInfo("text_layer", "pdfium", _VERSION, {}, "BSD-3-Clause")
+
+
+def _image_coverage(p) -> float:
+    """Podíl plochy strany pokrytý rastrovými obrázky (součet, nejvýš 1)."""
+    page = p.handle
+    width, height = p.width_raw, p.height_raw
+    if width <= 0 or height <= 0:
+        return 0.0
+    left, bottom, right, top = page.get_cropbox()
+    covered = 0.0
+    for i in range(pdfium_c.FPDFPage_CountObjects(page)):
+        obj = pdfium_c.FPDFPage_GetObject(page, i)
+        if pdfium_c.FPDFPageObj_GetType(obj) != pdfium_c.FPDF_PAGEOBJ_IMAGE:
+            continue
+        x0, y0, x1, y1 = (ctypes.c_float() for _ in range(4))
+        if not pdfium_c.FPDFPageObj_GetBounds(obj, x0, y0, x1, y1):
+            continue
+        w = min(x1.value, right) - max(x0.value, left)
+        h = min(y1.value, top) - max(y0.value, bottom)
+        if w > 0 and h > 0:
+            covered += w * h
+    return min(1.0, covered / ((right - left) * (top - bottom)))
