@@ -27,6 +27,8 @@ PORTS = (
     "page_classifier",
     "router",
     "layout",
+    "layout_refiner",
+    "reading_order",
     "text_assigner",
     "recognizer",
     "language",

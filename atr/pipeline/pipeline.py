@@ -18,6 +18,7 @@ from atr.ports.types import (
     BBox,
     Block,
     BlockLine,
+    BlockType,
     ComponentInfo,
     DocumentInput,
     DocumentResult,
@@ -88,7 +89,7 @@ class Pipeline:
 
         if image is None:
             image = self.c["renderer"].render(doc, number, self.config.render_dpi)
-        layout = sorted(self.c["layout"].detect(image, geometry), key=_reading_key)
+        layout = self._layout(image, geometry)
 
         if decision.route is Route.OCR and not layout:
             # Strana bez textové vrstvy, na které rozvržení nic nenašlo, je prázdná.
@@ -103,12 +104,15 @@ class Pipeline:
         else:
             try:
                 jobs = [(block, i) for i, block in enumerate(layout)]
+
+                def run(job: tuple[LayoutBlock, int]) -> Block:
+                    return self._recognize(image, job[0], job[1], decision.route, layout)
+
                 if self.config.recognize_concurrency > 1 and len(jobs) > 1:
                     with ThreadPoolExecutor(self.config.recognize_concurrency) as pool:
-                        page.blocks = list(pool.map(
-                            lambda job: self._recognize(image, job[0], job[1], decision.route), jobs))
+                        page.blocks = list(pool.map(run, jobs))
                 else:
-                    page.blocks = [self._recognize(image, b, i, decision.route) for b, i in jobs]
+                    page.blocks = [run(job) for job in jobs]
             except DependencyError:
                 raise  # nedostupná služba: úlohu jde zopakovat, není to selhání rozpoznání
             except Exception as exc:
@@ -118,7 +122,19 @@ class Pipeline:
         self._languages(page)
         return page
 
-    def _recognize(self, image: PageImage, block: LayoutBlock, order: int, route: Route) -> Block:
+    def _layout(self, image: PageImage, geometry) -> list[LayoutBlock]:
+        """Rozvržení → (úprava geometrie) → pořadí čtení."""
+        blocks = self.c["layout"].detect(image, geometry)
+        refiner = self.c.get("layout_refiner")
+        if refiner is not None:
+            blocks = refiner.refine(blocks, geometry)
+        reading = self.c.get("reading_order")
+        if reading is not None:
+            return reading.order(blocks, geometry)
+        return sorted(blocks, key=_reading_key)
+
+    def _recognize(self, image: PageImage, block: LayoutBlock, order: int, route: Route,
+                   page_blocks: list[LayoutBlock]) -> Block:
         out = Block(type=block.type, bbox=block.bbox, confidence=block.confidence,
                     order=block.order if block.order is not None else order)
         name = self.config.recognize.get(block.type)
@@ -127,7 +143,10 @@ class Pipeline:
             out.text_source = route
             return out
         content = self.c.recognizers[name].recognize(
-            crop(image, block.bbox, self.config.crop_padding_pt), block)
+            crop(image, block.bbox, self.config.crop_padding_pt,
+                 mask=[b.bbox for b in page_blocks if b is not block and b.type is not BlockType.FIGURE]
+                 if self.config.mask_neighbours else None),
+            block)
         out.text, out.format, out.text_source = content.text, content.format, route
         out.lines = _derived_lines(content.text, block.bbox) if content.format == "text" else []
         return out

@@ -42,6 +42,8 @@ class PipelineConfig:
     crop_padding_pt: float = 2.0
     # Kolik bloků jedné strany se rozpoznává souběžně (služby modelů zvládají dávky).
     recognize_concurrency: int = 1
+    # Ve výřezu bloku zabílit části, které patří sousedním čitelným blokům.
+    mask_neighbours: bool = True
 
 
 class ConfigError(ValueError):
@@ -85,6 +87,7 @@ def parse(raw: dict[str, Any]) -> PipelineConfig:
         render_dpi=float(pipeline.get("render_dpi", 200)),
         crop_padding_pt=float(pipeline.get("crop_padding_pt", 2)),
         recognize_concurrency=int(pipeline.get("recognize_concurrency", 1)),
+        mask_neighbours=bool(pipeline.get("mask_neighbours", True)),
     )
 
 

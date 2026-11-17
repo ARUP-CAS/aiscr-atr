@@ -4,6 +4,7 @@
 pipeline:
   render_dpi: 200
   crop_padding_pt: 2
+  mask_neighbours: true      # ve výřezu zabílit části sousedních bloků
   recognize_concurrency: 4   # souběžné bloky jedné strany; llama.cpp: stejně jako --parallel
 
 ports:
@@ -48,6 +49,14 @@ ports:
         seal: figure
         formula: formula
         formula_number: formula
+
+  # obecné vyřešení překryvů mezi bloky (bez pravidel pro konkrétní dokumenty)
+  layout_refiner:
+    adapter: overlaps
+    params: {contained: 0.85, merge: 0.25}
+
+  # pořadí čtení: model (z PP-DocLayoutV3) | xycut
+  reading_order: {adapter: model}
 
   text_assigner:
     adapter: overlap

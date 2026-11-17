@@ -89,6 +89,18 @@ class LayoutDetector(Component, Protocol):
     def detect(self, image: PageImage, geometry: PageGeometry) -> list[LayoutBlock]: ...
 
 
+class LayoutRefiner(Component, Protocol):
+    """Obecná úprava geometrie bloků (překryvy, vnořené duplicity). Nepovinné."""
+
+    def refine(self, blocks: list[LayoutBlock], geometry: PageGeometry) -> list[LayoutBlock]: ...
+
+
+class ReadingOrder(Component, Protocol):
+    """Seřadí bloky do pořadí čtení a vyplní `order`. Nepovinné; bez něj platí pořadí z rozvržení."""
+
+    def order(self, blocks: list[LayoutBlock], geometry: PageGeometry) -> list[LayoutBlock]: ...
+
+
 class BlockRecognizer(Component, Protocol):
     """Výřez bloku → rozpoznaný obsah."""
 
@@ -119,10 +131,12 @@ __all__ = [
     "Component",
     "LanguageDetector",
     "LayoutDetector",
+    "LayoutRefiner",
     "OpenedDocument",
     "PageClassifier",
     "PageRenderer",
     "PageSource",
+    "ReadingOrder",
     "Router",
     "TextAssigner",
     "TextLayerJudge",
