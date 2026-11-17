@@ -6,6 +6,7 @@ import base64
 
 import httpx
 
+from atr.ports.errors import DependencyError
 from atr.ports.types import ComponentInfo, LayoutBlock, PageImage, RecognizedContent
 from atr.registry import register
 
@@ -41,6 +42,14 @@ class OpenAIBlockRecognizer:
 
     def recognize(self, crop: PageImage, block: LayoutBlock) -> RecognizedContent:
         image_url = "data:image/png;base64," + base64.b64encode(crop.png).decode("ascii")
+        try:
+            resp = self._post(image_url)
+        except httpx.HTTPError as exc:
+            raise DependencyError(f"recognizer {self.model}", f"{self.url}: {exc}") from exc
+        text = resp.json()["choices"][0]["message"]["content"] or ""
+        return RecognizedContent(text=text.strip(), format=self.output_format)
+
+    def _post(self, image_url: str) -> httpx.Response:
         resp = self.client.post(
             f"{self.url}/chat/completions",
             json={
@@ -59,8 +68,7 @@ class OpenAIBlockRecognizer:
             },
         )
         resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"] or ""
-        return RecognizedContent(text=text.strip(), format=self.output_format)
+        return resp
 
     def info(self) -> ComponentInfo:
         return ComponentInfo(

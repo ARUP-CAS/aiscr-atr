@@ -47,7 +47,7 @@ class RulesTextLayerJudge:
             # tady hlásíme jen to, co víme.
             return TextLayerJudgement(TextLayerVerdict.NONE, "no_text_layer", 0.0)
 
-        bad = sum(_is_bad_char(c) for c in chars) / len(chars)
+        bad = (sum(_is_bad_char(c) for c in chars) + layer.unmapped_chars) / len(chars)
         if bad > self.max_bad_char_ratio:
             return TextLayerJudgement(TextLayerVerdict.GARBLED, f"bad_char_ratio={bad:.2f}", 1 - bad)
 

@@ -129,7 +129,7 @@ Adresy kontejnerů jsou v `config/pipeline.yaml`. Volitelné služby se zapínaj
 | Fáze | Co vznikne | Hotovo, když |
 |---|---|---|
 | **0. Základ** | datové typy, rozhraní komponent, konfigurace, testovací sada (sken, born-digital, smíšené, otočené a oříznuté strany, rukopis) | sada je v repozitáři a rozhraní mají testy. *Stav 17. 11.: kostra, porty, registr, potrubí, první adaptéry a testy hotové; chybí testovací sada dokumentů.* |
-| **1. Strany a textová vrstva** | komponenty 1–4 | u každé strany sady sedí rozměry a text s polohou, i u otočených a oříznutých |
+| **1. Strany a textová vrstva** | komponenty 1–4 | u každé strany sady sedí rozměry a text s polohou, i u otočených a oříznutých. *Stav 17. 11.: adaptéry pdfium (PDF i obrázky, TIFF více stran), syntetická sada a `python -m atr inspect` hotové; skutečný vzorek z AMČR chybí.* |
 | **2. Rozvržení** | komponenta 8 s PP-DocLayoutV3 | bloky s typem a polohou na textových i skenovaných stranách ve stejných souřadnicích |
 | **3. Směrování** | komponenty 5 a 7, vynucené strany | každá strana sady má správnou trasu s důvodem |
 | **4. Rozpoznání bloků** | komponenta 10, srovnání PaddleOCR-VL a GLM-OCR na českém vzorku | změřená chybovost obou modelů, zvolený výchozí |

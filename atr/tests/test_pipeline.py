@@ -146,3 +146,13 @@ def test_components_are_reported_for_paradata():
     result = pipeline.process(doc())
     ports = {c.port for c in result.components}
     assert {"layout", "router", "assembler", "recognizer"} <= ports
+
+
+def test_unavailable_recognizer_is_not_a_recognition_failure():
+    from atr.adapters.recognizer.openai import OpenAIBlockRecognizer
+    from atr.ports.errors import DependencyError
+
+    pipeline = make_pipeline()
+    pipeline.c.recognizers["text"] = OpenAIBlockRecognizer("http://127.0.0.1:9/v1", "m", "OCR:", timeout_s=2)
+    with pytest.raises(DependencyError):
+        pipeline.run(doc())

@@ -112,6 +112,8 @@ class Line:
 class TextLayer:
     page: int
     lines: tuple[Line, ...]
+    # Znaky, které čtečka nedokázala převést na Unicode (vadné mapování písma).
+    unmapped_chars: int = 0
 
     @property
     def text(self) -> str:

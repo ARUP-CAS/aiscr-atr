@@ -6,3 +6,5 @@ __pycache__/
 dist/
 *.egg-info/
 .env
+samples/generated/
+samples/corpus/

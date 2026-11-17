@@ -6,10 +6,11 @@ pipeline:
   crop_padding_pt: 2
 
 ports:
-  # --- fáze 1: zatím testovací adaptéry, nahradí je pdfium ---
-  page_source: {adapter: fake}
-  renderer: {adapter: fake}
-  text_layer: {adapter: fake}
+  page_source:
+    adapter: pdfium
+    params: {default_image_dpi: 300}   # DPI obrázku bez údaje v metadatech
+  renderer: {adapter: pdfium}
+  text_layer: {adapter: pdfium}
 
   text_layer_judge:
     adapter: rules

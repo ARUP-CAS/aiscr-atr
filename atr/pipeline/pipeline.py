@@ -11,6 +11,7 @@ a `config/pipeline.yaml`.
 from __future__ import annotations
 
 from atr.config import Components, PipelineConfig
+from atr.ports.errors import DependencyError
 from atr.ports.types import (
     BBox,
     Block,
@@ -101,7 +102,10 @@ class Pipeline:
             try:
                 page.blocks = [self._recognize(image, block, i, decision.route)
                                for i, block in enumerate(layout)]
+            except DependencyError:
+                raise  # nedostupná služba: úlohu jde zopakovat, není to selhání rozpoznání
             except Exception as exc:
+                # Každé jiné selhání rozpoznání je selhání úlohy (kontrakt #17, bod 9).
                 raise PipelineError("all_engines_failed", f"{type(exc).__name__}: {exc}", [number]) from exc
 
         self._languages(page)

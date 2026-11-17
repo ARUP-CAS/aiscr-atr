@@ -6,6 +6,7 @@ import base64
 
 import httpx
 
+from atr.ports.errors import DependencyError
 from atr.ports.types import (
     BBox,
     BlockType,
@@ -37,11 +38,14 @@ class HttpLayoutDetector:
         self._info: dict | None = None
 
     def detect(self, image: PageImage, geometry: PageGeometry) -> list[LayoutBlock]:
-        resp = self.client.post(
-            f"{self.url}/predict",
-            json={"image_png_base64": base64.b64encode(image.png).decode("ascii")},
-        )
-        resp.raise_for_status()
+        try:
+            resp = self.client.post(
+                f"{self.url}/predict",
+                json={"image_png_base64": base64.b64encode(image.png).decode("ascii")},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise DependencyError("layout", f"{self.url}: {exc}") from exc
         k = image.px_to_pt
         blocks = []
         for item in resp.json()["blocks"]:
@@ -62,7 +66,13 @@ class HttpLayoutDetector:
 
     def info(self) -> ComponentInfo:
         if self._info is None:
-            self._info = self.client.get(f"{self.url}/info").json()
+            try:
+                resp = self.client.get(f"{self.url}/info", timeout=5.0)
+                resp.raise_for_status()
+                self._info = resp.json()
+            except (httpx.HTTPError, ValueError):
+                # Nedostupná služba nesmí shodit /info; zkusí se znovu příště.
+                return ComponentInfo("layout", "unreachable", "unknown", {"url": self.url})
         return ComponentInfo(
             "layout",
             self._info.get("model", "unknown"),

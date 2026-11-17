@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from atr import __version__, config, registry
 from atr.adapters.assembler.docproc import CONTRACT_VERSION
 from atr.pipeline import Pipeline, PipelineError
+from atr.ports.errors import DependencyError, InputError
 from atr.ports.types import DocumentInput
 
 app = FastAPI(title="aiscr-atr", version=__version__)
@@ -70,6 +71,10 @@ async def convert(
     )
     try:
         return JSONResponse(get_pipeline().run(document))
+    except InputError as exc:
+        return _error(422, exc.reason, exc.detail)
+    except DependencyError as exc:
+        return _error(503, "service_unavailable", str(exc))
     except PipelineError as exc:
         status = 400 if exc.reason == "invalid_forced_pages" else 422
         return _error(status, exc.reason, exc.detail, exc.pages)
