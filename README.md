@@ -3,8 +3,8 @@
 Otevřená služba ATR pro projekt ATRIUM: z jakéhokoli dokumentu (born-digital PDF,
 sken, smíšené PDF, obrázek) vytvoří `atr/docproc-json` podle kontraktu
 [aiscr-docs-pipeline#17](https://github.com/ARUP-CAS/aiscr-docs-pipeline/issues/17).
-Zadání je v [aiscr-atr#2](https://github.com/ARUP-CAS/aiscr-atr/issues/2), plán stavby
-v [`docs/PLAN.md`](docs/PLAN.md).
+Zadání je v [aiscr-atr#2](https://github.com/ARUP-CAS/aiscr-atr/issues/2), architektura
+a stav v [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Jak je to poskládané
 
@@ -30,8 +30,11 @@ Testy používají adaptéry `fake` a nepotřebují PDF ani GPU.
 ## Spuštění
 
 ```bash
-docker compose up atr-api                  # služba na http://localhost:8080
-docker compose --profile gpu up            # + rozvržení a PaddleOCR-VL (potřebuje GPU a VLLM_IMAGE v .env)
+docker compose up atr-api layout           # služba na http://localhost:8080 + rozvržení na CPU
+docker compose --profile gpu up            # + PaddleOCR-VL za vLLM (NVIDIA; VLLM_IMAGE v .env)
+# AMD/Intel přes llama.cpp (Vulkan), jen nativní Docker engine:
+scripts/fetch-gguf.sh
+OCR_TEXT_URL=http://ocr-text-vulkan:8000/v1 docker compose --profile vulkan up
 ```
 
 Rozhraní ([`docs/openapi.json`](docs/openapi.json)): `POST /convert` (soubor, nepovinně

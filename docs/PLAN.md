@@ -1,161 +1,152 @@
-# Otevřená služba ATR: plán stavby
+# Otevřená služba ATR: architektura a stav
 
-Stav: návrh k diskusi (17. 11. 2026). Zadání: [aiscr-atr#2](https://github.com/ARUP-CAS/aiscr-atr/issues/2), kontrakt výstupu: [aiscr-docs-pipeline#17](https://github.com/ARUP-CAS/aiscr-docs-pipeline/issues/17).
+Stav k 17. 11. 2026. Zadání: [aiscr-atr#2](https://github.com/ARUP-CAS/aiscr-atr/issues/2),
+kontrakt výstupu: [aiscr-docs-pipeline#17](https://github.com/ARUP-CAS/aiscr-docs-pipeline/issues/17).
 
 ## 1. Cíl a zásady
 
-- **Jeden vstup, jeden výstup.** Jakýkoli dokument (born-digital PDF, sken, smíšené PDF, obrázek) projde stejným rozhraním a vrátí `atr/docproc-json` podle schématu ARUP-CAS.
-- **Vyměnitelné komponenty.** Každá část má pevné rozhraní a aspoň jednu implementaci. Výměna implementace je změna konfigurace, ne kódu potrubí.
-- **Každá část samostatně.** Komponenta má vlastní testy a jde spustit z příkazové řádky nad jedním souborem. Potrubí je spojuje až nakonec.
+- **Jeden vstup, jeden výstup.** Jakýkoli dokument (born-digital PDF, sken, smíšené PDF, obrázek) projde stejným rozhraním a vrátí `atr/docproc-json`.
+- **Vyměnitelné komponenty.** Každá část má pevné rozhraní (port) a aspoň jednu implementaci (adaptér). Výměna implementace je změna konfigurace, ne kódu potrubí.
+- **Každá část samostatně.** Komponenta má vlastní testy; potrubí je spojuje až nakonec.
 - **Jen otevřené nástroje.** Kód i váhy s licencí MIT, Apache-2.0 nebo BSD. Nic se nepřebírá z proprietárních řešení.
-- **Využít, co už v ATRIUM je.** Nástroje ÚFAL (MIT) se zapojí jako implementace komponent, kde se hodí.
+- **Žádná pravidla na míru dokumentům.** Co model neumí, řeší lepší model, ne ruční detekce.
 
 ## 2. Potrubí
 
 ```mermaid
 flowchart TD
-    A[Vstup: dokument + vynucené strany] --> B[Příjem a normalizace]
-    B --> C[Inventura stran: rozměry, CropBox, otočení]
-    C --> D[Čtečka textové vrstvy]
-    C --> E[Vykreslení stran]
-    E --> F[Klasifikace stran - nepovinná]
+    A[Vstup: dokument + vynucené strany] --> B[Strany: rozměry, CropBox, otočení]
+    B --> C[Čtečka textové vrstvy]
+    C --> D[Verdikt textové vrstvy]
     D --> G{Směrování strany}
-    F --> G
-    G -->|digital| H[Rozvržení]
-    G -->|ocr / forced| H
     G -->|empty| M
-    H --> I[Přiřazení textu z textové vrstvy do bloků]
-    H --> J[Rozpoznání bloků podle typu]
-    I --> K[Pořadí čtení a detekce jazyka]
+    G -->|digital / ocr / forced| E[Vykreslení strany]
+    E --> H[Rozvržení → úprava překryvů → pořadí čtení]
+    H -->|digital| I[Text z textové vrstvy do bloků]
+    I -->|vrstva pokrývá málo bloků| J
+    H -->|ocr / forced| J[Rozpoznání bloků podle typu]
+    I --> K[Jazyk bloků a dokumentu]
     J --> K
     K --> M[Skladatel: docproc JSON, routing každé strany]
-    M --> N[Validace schématem, paradata, chyby]
+    M --> N[Validace schématem, paradata]
 ```
 
-Rozvržení běží stejným modelem na textových i skenovaných stranách. Liší se jen zdroj textu v bloku: textová vrstva, nebo rozpoznání.
+Rozvržení běží stejným modelem na textových i skenovaných stranách. Liší se jen zdroj textu
+v bloku: textová vrstva, nebo rozpoznání.
 
-## 3. Komponenty
+## 3. Porty a adaptéry
 
-| # | Komponenta | Vstup → výstup | První implementace | Další možnosti |
-|---|---|---|---|---|
-| 1 | **Příjem a normalizace** | soubor → PDF nebo sada stran, MIME, název a SHA-512 od orchestrace | PDF a obrázky | kancelářské formáty přes převod do PDF |
-| 2 | **Inventura stran** | PDF → rozměry každé strany (CropBox, `/Rotate`, `UserUnit`), jednotný rám souřadnic | PDFium | pypdf |
-| 3 | **Vykreslení stran** | strana → obrázek při zvoleném DPI | PDFium | – |
-| 4 | **Čtečka textové vrstvy** | strana → znaky, slova a řádky s polohou | PDFium | `atrium-digital-convert` (ÚFAL), pdfplumber |
-| 5 | **Verdikt textové vrstvy** | text strany → použitelná, vadná, žádná, starší OCR vrstva | pravidla nad podílem čitelných znaků a slov | jazykový model a skóre kvality z `atrium-ocr-postprocess` |
-| 6 | **Klasifikace stran** (nepovinná) | obrázek strany → kategorie s jistotou | `ufal/vit-historical-page` z `atrium-page-classification` | SigLIP |
-| 7 | **Směrování** | verdikt, vynucené strany, příp. kategorie → trasa `digital`, `ocr`, `forced`, `empty` s důvodem | pravidla v konfiguraci | – |
-| 8 | **Rozvržení** | obrázek strany → bloky s typem, polohou, jistotou a pořadím | PP-DocLayoutV3 | Heron (Docling), DocLayout-YOLO |
-| 9 | **Přiřazení textu** | slova z textové vrstvy + bloky → text bloku a řádky se změřenou polohou | překryv slov s bloky | – |
-| 10 | **Rozpoznání bloků** | výřez bloku + typ → text, tabulka, vzorec | PaddleOCR-VL-1.6 za vLLM | GLM-OCR; samostatný rozpoznávač podle typu |
-| 11 | **Pořadí čtení** | bloky → pořadí | z modelu rozvržení | geometrické pravidlo |
-| 12 | **Detekce jazyka** | text bloku nebo strany → jazyk | fastText (jako v nástrojích ATRIUM) | – |
-| 13 | **Skladatel** | strany a bloky → `atr/docproc-json` | vlastní | – |
-| 14 | **Validace, chyby, paradata** | výstup → kontrola schématem, chybový model, data o běhu | vlastní | – |
+Potrubí (`atr/pipeline`) zná jen porty (`atr/ports`). Adaptér se hlásí jménem do registru
+a vybírá se v `config/pipeline.yaml`.
 
-Rozpoznání bloků (10) se volí podle typu z rozvržení. Tabulka typ → rozpoznávač je v konfiguraci: text, tabulka, vzorec a později rukopis mohou mít každý jiný model. Obrázky a kresby se nerozpoznávají, ve výstupu jsou jen polohou.
+| Port | Dotaz → odpověď | Adaptéry | Kde běží |
+|---|---|---|---|
+| `page_source` | soubor → strany s rozměry (CropBox, `/Rotate`, `UserUnit`; obrázky s EXIF orientací a DPI) | `pdfium` | v procesu |
+| `renderer` | strana, DPI → obrázek | `pdfium` | v procesu |
+| `text_layer` | strana → slova a řádky s polohou, neviditelný text, pokrytí obrázky | `pdfium` | v procesu |
+| `text_layer_judge` | textová vrstva → `digital`, `garbled`, `ocr`, `none` | `rules` | v procesu |
+| `router` | verdikt, vynucené strany → trasa `digital`, `ocr`, `forced`, `empty` s důvodem | `rules` | v procesu |
+| `layout` | obrázek strany → bloky (typ, poloha, jistota, pořadí) | `http` | kontejner s modelem |
+| `layout_refiner` (nepovinný) | bloky → bloky bez vnořených duplikátů a překryvů | `overlaps` | v procesu |
+| `reading_order` (nepovinný) | bloky → pořadí čtení | `model`, `xycut` | v procesu |
+| `text_assigner` | slova textové vrstvy + bloky → text bloku a změřené řádky | `overlap` | v procesu |
+| rozpoznávače (`recognizers`) | výřez bloku → text, tabulka, vzorec | `openai` (vLLM, llama.cpp) | kontejner s modelem |
+| `language` (nepovinný) | text → jazyk | `lingua` | v procesu |
+| `page_classifier` (nepovinný) | obrázek strany → kategorie | zatím žádný | – |
+| `assembler` | strany, bloky, trasy → `atr/docproc-json` | `docproc` | v procesu |
 
-## 4. Jak je to vyměnitelné
+Pro testy a vývoj bez PDF a GPU má každý port adaptér `fake`.
 
-- **Rozhraní:** každá komponenta je třída podle společného protokolu (vstupní a výstupní datové typy v jednom modulu).
-- **Registr:** implementace se hlásí jménem. Konfigurace (YAML) říká, která se použije a s jakými parametry.
-- **Vzdálené modely:** rozvržení a rozpoznávání jsou za HTTP rozhraním, aby šly provozovat na GPU zvlášť a vyměnit bez nového sestavení služby.
-- **Paradata:** každá komponenta hlásí své jméno, verzi a parametry, takže výstup vždy říká, čím vznikl.
+Rozpoznávač se volí podle typu bloku (tabulka `recognize` v konfiguraci). Typ bez rozpoznávače
+je ve výstupu jen typem a polohou: obrázky (`figure`) a ruční písmo (`handwriting`), které
+zatím žádný model nečte spolehlivě.
 
-### Porty a adaptéry
+Rozhraní kontejnerů s modely: [`model-services.md`](model-services.md). Rozhraní služby:
+[`openapi.json`](openapi.json).
 
-Potrubí zná jen **porty**: pevná rozhraní s pevnými datovými typy. Konkrétní nástroj je **adaptér**, který port naplní. Nový model nebo knihovna znamená napsat adaptér a změnit řádek v konfiguraci. Tok potrubí se nemění.
-
-| Port | Dotaz → odpověď | Kde běží adaptér |
-|---|---|---|
-| `PageSource` | soubor → strany s rozměry a rámem souřadnic | v procesu |
-| `PageRenderer` | strana, DPI → obrázek | v procesu |
-| `TextLayerReader` | strana → slova a řádky s polohou | v procesu |
-| `TextLayerJudge` | text strany → verdikt | v procesu |
-| `PageClassifier` | obrázek strany → kategorie, jistota | kontejner s modelem |
-| `Router` | verdikt, vynucené strany, kategorie → trasa, důvod | v procesu |
-| `LayoutDetector` | obrázek strany → bloky (typ, poloha, jistota, pořadí) | kontejner s modelem |
-| `BlockRecognizer` | výřez, typ bloku → obsah | kontejner s modelem |
-| `LanguageDetector` | text → jazyk, jistota | v procesu |
-| `Assembler` | strany, bloky, trasy → docproc JSON | v procesu |
-
-Každý kontejner s modelem má stejné minimum: `POST /predict` podle svého portu, `GET /info` (model, verze, licence) a `GET /health`. Rozpoznávače za vLLM mluví rozhraním kompatibilním s OpenAI; adaptér ho převádí na port `BlockRecognizer`.
-
-### Rozložení repozitáře
+## 4. Rozložení repozitáře
 
 ```
 aiscr-atr/
-├── docker-compose.yml          # atr-api + kontejnery modelů
-├── config/
-│   └── pipeline.yaml           # který adaptér je na kterém portu, tabulka typ bloku → rozpoznávač
+├── docker-compose.yml          # atr-api + layout; OCR v profilech gpu, alt, vulkan, vulkan-alt
+├── config/pipeline.yaml        # adaptér na každém portu, typ bloku → rozpoznávač
 ├── atr/                        # služba (CPU)
 │   ├── api/                    # /convert, /info, /health
 │   ├── pipeline/               # tok potrubí; zná jen porty
-│   ├── ports/                  # rozhraní a datové typy
-│   ├── adapters/
-│   │   ├── page_source/pdfium/
-│   │   ├── text_layer/pdfium/
-│   │   ├── text_layer_judge/rules/
-│   │   ├── router/rules/
-│   │   ├── layout/http/        # klient kontejneru rozvržení
-│   │   ├── recognizer/openai/  # klient vLLM
-│   │   ├── page_classifier/http/
-│   │   ├── language/fasttext/
-│   │   └── assembler/docproc/
+│   ├── ports/                  # rozhraní, datové typy, chyby
+│   ├── adapters/               # složka na port (pdfium sdílí dokument, proto jedna složka)
+│   ├── schema/                 # návrh schématu atr/docproc-json
+│   ├── paradata.py, validation.py, render_utils.py
 │   └── tests/
-├── models/                     # jeden kontejner na model
-│   ├── layout-ppdoclayoutv3/   # Dockerfile + tenký server s /predict
-│   ├── ocr-paddleocr-vl/       # konfigurace vLLM
-│   ├── ocr-glm-ocr/            # konfigurace vLLM
-│   └── pageclass-vit/          # model ufal/vit-historical-page
-├── samples/                    # testovací sada dokumentů
+├── models/layout-ppdoclayoutv3/  # služba rozvržení (ONNX Runtime na CPU, PyTorch pro GPU)
+├── training/layout/            # datová sada a dotrénování rozvržení (ArchaeoDocLayout)
+├── scripts/                    # vyhodnocení, export OpenAPI, stažení GGUF
+├── samples/                    # generátor syntetické testovací sady
 └── docs/
 ```
 
-### Docker compose
+## 5. Docker compose
 
-| Služba | Obsah | GPU |
+| Služba | Obsah | Kdy |
 |---|---|---|
-| `atr-api` | potrubí a adaptéry v procesu | ne |
-| `layout` | PP-DocLayoutV3 | ano (jde i CPU) |
-| `ocr-text` | PaddleOCR-VL-1.6 za vLLM | ano |
-| `ocr-alt` (profil) | GLM-OCR za vLLM | ano |
-| `pageclass` (profil) | klasifikace stran | volitelně |
+| `atr-api` | potrubí a adaptéry v procesu | vždy |
+| `layout` | PP-DocLayoutV3, ONNX Runtime na CPU | vždy |
+| `ocr-text` | PaddleOCR-VL-1.6 za vLLM (NVIDIA) | profil `gpu` |
+| `ocr-alt` | GLM-OCR za vLLM (NVIDIA) | profil `alt` |
+| `ocr-text-vulkan`, `ocr-alt-vulkan` | tytéž modely přes llama.cpp (AMD, Intel) | profily `vulkan`, `vulkan-alt` |
 
-Adresy kontejnerů jsou v `config/pipeline.yaml`. Volitelné služby se zapínají profily compose. Stejné obrazy se později nasadí na cluster.
+Adresy služeb jdou měnit proměnnými prostředí (`LAYOUT_URL`, `OCR_TEXT_URL`, `OCR_ALT_URL`).
 
-## 5. Fáze
+## 6. Stav
 
-| Fáze | Co vznikne | Hotovo, když |
-|---|---|---|
-| **0. Základ** | datové typy, rozhraní komponent, konfigurace, testovací sada (sken, born-digital, smíšené, otočené a oříznuté strany, rukopis) | sada je v repozitáři a rozhraní mají testy. *Stav 17. 11.: kostra, porty, registr, potrubí, první adaptéry a testy hotové; chybí testovací sada dokumentů.* |
-| **1. Strany a textová vrstva** | komponenty 1–4 | u každé strany sady sedí rozměry a text s polohou, i u otočených a oříznutých. *Stav 17. 11.: adaptéry pdfium (PDF i obrázky, TIFF více stran), syntetická sada a `python -m atr inspect` hotové; skutečný vzorek z AMČR chybí.* |
-| **2. Rozvržení** | komponenta 8 s PP-DocLayoutV3 | bloky s typem a polohou na textových i skenovaných stranách ve stejných souřadnicích. *Stav 17. 11.: kontejner `models/layout-ppdoclayoutv3` (transformers, CPU ~0,6 s na stranu), born-digital PDF projde celým potrubím v compose; vyhodnocení na 100 anotovaných stranách AMČR (`scripts/eval_layout_segmonto.py`): pokryto 90 % oblastí, chybí hlavně rukopisné doplňky (pokryto 33 %) a záhlaví/zápatí (34 %).* |
-| **3. Směrování** | komponenty 5 a 7, vynucené strany | každá strana sady má správnou trasu s důvodem |
-| **4. Rozpoznání bloků** | komponenta 10, srovnání PaddleOCR-VL a GLM-OCR na českém vzorku | změřená chybovost obou modelů, zvolený výchozí. *Stav 17. 11.: oba modely běží přes llama.cpp (Vulkan, profil `vulkan`) na AMD Radeon 890M; první srovnání na jedné straně ze vzorku AMČR, chybovost zatím nejde změřit (vzorek nemá přepisy).* |
-| **5. Složení** | komponenty 9, 11, 13, 14 | první dokument projde celým potrubím a výstup projde schématem z #17 |
-| **6. Služba** | `/convert`, `/info`, `/health`, kontejnerový obraz | konektor v orchestraci dostane validní výstup |
-| **7. Rozšíření** | klasifikace stran, detekce jazyka, označení rukopisu | údaje jsou ve výstupu a v paradatech |
+### Hotovo a ověřeno
 
-Fáze 1, 2 a 4 na sobě nezávisí a jdou dělat souběžně. Fáze 0–6 dávají první úplnou verzi, fáze 7 může přijít po ní.
+- Čtení PDF a obrázků, souřadnice na zobrazené straně (testy na otočených a oříznutých stranách, `UserUnit`).
+- Verdikt textové vrstvy včetně starší OCR vrstvy a nekvalitního textu; neúplná vrstva jde na OCR.
+- Rozvržení PP-DocLayoutV3 (ONNX, asi 0,6 s na stranu na CPU), úprava překryvů, pořadí čtení.
+- Rozpoznání bloků podle typu přes llama.cpp na AMD (PaddleOCR-VL-1.6, GLM-OCR).
+- Jazyk bloků a dokumentu, paradata (RO-Crate Process Run Crate), validace výstupu návrhem schématu.
+- Chybový model: 400, 413, 422 (trvalé selhání), 503 (dočasné), 500 (neplatný výstup).
+- Dotrénované rozvržení se třídou `handwriting`: [`aiscr/ArchaeoDocLayout`](https://huggingface.co/aiscr/ArchaeoDocLayout)
+  (zatím soukromé), postup a výsledky v [`training/layout/README.md`](../training/layout/README.md).
 
-## 6. Co použijeme z ATRIUM (ÚFAL, MIT)
+### Neověřeno
 
-| Nástroj | Použití v ATR |
+- OCR za vLLM na NVIDIA (profily `gpu`, `alt`) a připnutá verze obrazu vLLM (`VLLM_IMAGE`).
+- Prahy verdiktu textové vrstvy na skutečně poškozených PDF z AMČR (nastavené podle syntetických vzorků a 498 stran interních PDF).
+- CI na GitHubu (poprvé poběží po prvním push).
+
+### Čeká na data nebo rozhodnutí
+
+| Co | Na co čeká |
 |---|---|
-| `atrium-page-classification` (model `ufal/vit-historical-page`) | první implementace klasifikace stran |
-| `atrium-ocr-postprocess` (fastText, skóre kvality textu) | detekce jazyka; kandidát pro verdikt textové vrstvy |
-| `atrium-digital-convert` (born-digital PDF a DOCX do JSON) | alternativní čtečka textové vrstvy; ověřit shodu výstupu |
+| normativní schéma výstupu | [aiscr-docs-pipeline#17](https://github.com/ARUP-CAS/aiscr-docs-pipeline/issues/17); v repozitáři je návrh |
+| výběr OCR modelu (PaddleOCR-VL, GLM-OCR) | strany s ověřeným přepisem; vzorek AMČR má jen anotace oblastí |
+| vyhodnocení pořadí čtení (`model` proti `xycut`) | anotace se skutečně seřazenými oblastmi |
+| čtení ručního písma | model, který ho přečte; zatím se jen označuje |
+| ArchaeoDocLayout ve výchozím compose | zveřejnění repozitáře modelu |
+| klasifikace stran (`ufal/vit-historical-page` z ATRIUM) | kontejner a adaptér; port je připravený |
+| kancelářské formáty (DOCX, ODT) | rozhodnutí, zda je má ATR brát |
+| shoda s digital-convert (ÚFAL) | oba nástroje mají vydávat stejný `atr/docproc-json`; srovnání v [aiscr-docs-pipeline#20](https://github.com/ARUP-CAS/aiscr-docs-pipeline/issues/20) |
 
-## 7. Otevřené otázky
+## 7. Měření
 
-1. **Shoda s digital-convert.** Podle #17 vydává `atr/docproc-json` pro čistě born-digital dokumenty digital-convert, pro ostatní ATR. Oba výstupy musí být stejné. Nabídnout ÚFAL společnou čtečku textové vrstvy a rozvržení?
-2. **GPU.** Kde poběží rozvržení a rozpoznávání (cluster AIS CR) a kolik paměti je k dispozici?
-3. **Kancelářské formáty.** Má je ATR brát, nebo jen PDF a obrázky?
-4. **Český vzorek.** Použít referenční vzorek z [aiscr-management#154](https://github.com/ARUP-CAS/aiscr-management/issues/154) i pro fázi 4?
-5. **Souřadnice z PP-DocLayoutV3 a nároky modelů na paměť** nejsou v dokumentaci, ověří se ve fázích 2 a 4.
+- **Rozvržení na 100 anotovaných stranách AMČR** (`scripts/eval_layout_segmonto.py`): původní
+  PP-DocLayoutV3 pokrývá 90 % oblastí; chybí hlavně rukopisné doplňky (33 %) a záhlaví/zápatí (34 %).
+  ArchaeoDocLayout na 38 stranách mimo trénink: 99 %, rukopisné doplňky 81 %, záhlaví/zápatí 100 %.
+- **Pořadí čtení** (`scripts/eval_reading_order.py`): pořadí oblastí v anotacích odpovídá poloze
+  jen na τ = 0,55, anotátoři ho neřadili; měření proto nic neříká.
+- **OCR**: srovnání obou modelů jen na jednotlivých stranách; PaddleOCR-VL lépe drží českou
+  diakritiku ve strojopisu, krátké ruční přípisy nečte dobře žádný z nich.
 
-## 8. Podklady
+## 8. Podklady k volbě řešení
 
-- Pokus s xberg 1.3.9: směrování stran a text s polohou fungují; oblasti rozvržení nevrací, PP-DocLayout-V3 nejde zvolit, souřadnice nejsou jednotné. Proto vlastní komponenty.
-- Průzkum hotových řešení (11/2026): žádné nesplňuje vše. Nejblíž je PaddleOCR-VL-1.6 (Apache-2.0; rozvržení a rozpoznání po blocích, bez textové vrstvy) a Docling (MIT; textová vrstva a rozvržení, bez rozpoznání po blocích přes VLM).
+- **xberg 1.3.9** (pokus): směrování stran a text s polohou fungují; oblasti rozvržení nevrací,
+  PP-DocLayout-V3 nejde zvolit, souřadnice nejsou jednotné. Proto vlastní komponenty.
+- **Průzkum hotových řešení** (11/2026): žádné nesplňuje vše. Nejblíž je PaddleOCR-VL-1.6
+  (Apache-2.0; rozvržení a rozpoznání po blocích, bez textové vrstvy) a Docling (MIT; textová
+  vrstva a rozvržení, bez rozpoznání po blocích přes VLM).
+- **Detekce jazyka**: lingua-py (Apache-2.0) místo fastText, jehož aktuální model pro určení
+  jazyka má licenci jen pro nekomerční užití. Ze stejného důvodu není použit LayoutReader pro pořadí čtení.
+- **Trénink rozvržení**: oficiální cesta přes PaddleX neběží na AMD ani ARM, proto vlastní
+  trénink v PyTorch nad implementací z transformers.
