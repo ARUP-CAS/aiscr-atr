@@ -1,0 +1,94 @@
+# Který adaptér je na kterém portu. Výměna modelu nebo knihovny = změna tady,
+# tok potrubí (atr/pipeline) se nemění.
+
+pipeline:
+  render_dpi: 200
+  crop_padding_pt: 2
+
+ports:
+  # --- fáze 1: zatím testovací adaptéry, nahradí je pdfium ---
+  page_source: {adapter: fake}
+  renderer: {adapter: fake}
+  text_layer: {adapter: fake}
+
+  text_layer_judge:
+    adapter: rules
+    params: {min_chars: 20, max_bad_char_ratio: 0.05, min_alnum_ratio: 0.5}
+
+  router: {adapter: rules}
+
+  layout:
+    adapter: http
+    params:
+      url: http://layout:8000
+      min_confidence: 0.3
+      # třída PP-DocLayoutV3 → typ bloku ve výstupu
+      label_map:
+        text: text
+        paragraph_title: heading
+        doc_title: title
+        abstract: text
+        content: text
+        reference: text
+        reference_content: text
+        aside_text: text
+        vertical_text: text
+        number: page_footer
+        header: page_header
+        footer: page_footer
+        footnote: footnote
+        vision_footnote: footnote
+        table: table
+        image: figure
+        chart: figure
+        seal: figure
+        header_image: figure
+        footer_image: figure
+        figure_title: caption
+        display_formula: formula
+        inline_formula: formula
+        formula_number: formula
+        algorithm: text
+
+  text_assigner:
+    adapter: overlap
+    params: {min_overlap: 0.5}
+
+  assembler: {adapter: docproc}
+
+  # nepovinné porty, zapnou se odkomentováním
+  # page_classifier: {adapter: http, params: {url: http://pageclass:8000}}
+  # language: {adapter: fasttext}
+
+# Rozpoznávače bloků. Jeden rozpoznávač = jeden model a jedna úloha.
+recognizers:
+  paddle-text:
+    adapter: openai
+    params: {url: http://ocr-text:8000/v1, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "OCR:", licence: Apache-2.0}
+  paddle-table:
+    adapter: openai
+    params: {url: http://ocr-text:8000/v1, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "Table Recognition:",
+             output_format: html, licence: Apache-2.0}
+  paddle-formula:
+    adapter: openai
+    params: {url: http://ocr-text:8000/v1, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "Formula Recognition:",
+             output_format: latex, licence: Apache-2.0}
+  # glm-text:
+  #   adapter: openai
+  #   params: {url: http://ocr-alt:8000/v1, model: zai-org/GLM-OCR, prompt: "Text Recognition:", licence: MIT}
+
+# Typ bloku → rozpoznávač. Typ, který tu není (figure), se nerozpoznává
+# a ve výstupu je jen polohou.
+recognize:
+  text: paddle-text
+  title: paddle-text
+  heading: paddle-text
+  list_item: paddle-text
+  caption: paddle-text
+  page_header: paddle-text
+  page_footer: paddle-text
+  footnote: paddle-text
+  handwriting: paddle-text
+  other: paddle-text
+  table: paddle-table
+  formula: paddle-formula

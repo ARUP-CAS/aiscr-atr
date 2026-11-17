@@ -1,0 +1,156 @@
+"""Tok potrubí.
+
+Pro každou stranu: geometrie → textová vrstva → verdikt → (klasifikace) →
+směrování → rozvržení → text do bloků (z textové vrstvy, nebo rozpoznáním
+podle typu bloku) → jazyk. Nakonec skladatel vytvoří výstup.
+
+Tento modul se při výměně modelu nebo knihovny nemění; mění se adaptér
+a `config/pipeline.yaml`.
+"""
+
+from __future__ import annotations
+
+from atr.config import Components, PipelineConfig
+from atr.ports.types import (
+    BBox,
+    Block,
+    BlockLine,
+    ComponentInfo,
+    DocumentInput,
+    DocumentResult,
+    LayoutBlock,
+    PageImage,
+    PageResult,
+    PositionAccuracy,
+    Route,
+    RouteDecision,
+)
+from atr.render_utils import crop
+
+
+class PipelineError(RuntimeError):
+    """Selhání úlohy. Neúplný výsledek se nevydává (kontrakt #17, bod 9)."""
+
+    def __init__(self, reason: str, detail: str, pages: list[int] | None = None) -> None:
+        super().__init__(f"{reason}: {detail}")
+        self.reason = reason
+        self.detail = detail
+        self.pages = pages or []
+
+
+class Pipeline:
+    def __init__(self, config: PipelineConfig, components: Components) -> None:
+        self.config = config
+        self.c = components
+
+    # --- veřejné API -------------------------------------------------------
+
+    def run(self, document: DocumentInput) -> dict:
+        result = self.process(document)
+        return self.c["assembler"].assemble(result)
+
+    def process(self, document: DocumentInput) -> DocumentResult:
+        doc = self.c["page_source"].open(document)
+        try:
+            known = {g.number for g in doc.pages}
+            unknown = sorted(set(document.forced_pages) - known)
+            if unknown:
+                raise PipelineError("invalid_forced_pages", f"strany mimo dokument: {unknown}", unknown)
+
+            pages = [self._page(doc, geometry, document.forced_pages.get(geometry.number))
+                     for geometry in doc.pages]
+        finally:
+            doc.close()
+
+        return DocumentResult(document=document, pages=pages, components=self._components_info())
+
+    # --- jedna strana ------------------------------------------------------
+
+    def _page(self, doc, geometry, forced_reason: str | None) -> PageResult:
+        number = geometry.number
+        layer = self.c["text_layer"].read(doc, number)
+        judgement = self.c["text_layer_judge"].judge(layer, geometry)
+
+        image: PageImage | None = None
+        page_class = None
+        classifier = self.c.get("page_classifier")
+        if classifier is not None:
+            image = self.c["renderer"].render(doc, number, self.config.render_dpi)
+            page_class = classifier.classify(image)
+
+        decision = self.c["router"].decide(geometry, judgement, forced_reason, page_class)
+        page = PageResult(geometry=geometry, decision=decision, judgement=judgement, page_class=page_class)
+        if decision.route is Route.EMPTY:
+            return page
+
+        if image is None:
+            image = self.c["renderer"].render(doc, number, self.config.render_dpi)
+        layout = sorted(self.c["layout"].detect(image, geometry), key=_reading_key)
+
+        if decision.route is Route.OCR and not layout:
+            # Strana bez textové vrstvy, na které rozvržení nic nenašlo, je prázdná.
+            # Vynucená strana zůstává vynucená i bez bloků.
+            page.decision = RouteDecision(number, Route.EMPTY, f"no_layout_blocks; {decision.reason}")
+            return page
+
+        if decision.route is Route.DIGITAL:
+            page.blocks = self.c["text_assigner"].assign(layer, layout)
+            for block in page.blocks:
+                block.text_source = Route.DIGITAL
+        else:
+            try:
+                page.blocks = [self._recognize(image, block, i, decision.route)
+                               for i, block in enumerate(layout)]
+            except Exception as exc:
+                raise PipelineError("all_engines_failed", f"{type(exc).__name__}: {exc}", [number]) from exc
+
+        self._languages(page)
+        return page
+
+    def _recognize(self, image: PageImage, block: LayoutBlock, order: int, route: Route) -> Block:
+        out = Block(type=block.type, bbox=block.bbox, confidence=block.confidence,
+                    order=block.order if block.order is not None else order)
+        name = self.config.recognize.get(block.type)
+        if name is None:
+            # Typ bez rozpoznávače (obrázek, kresba): ve výstupu jen polohou.
+            out.text_source = route
+            return out
+        content = self.c.recognizers[name].recognize(
+            crop(image, block.bbox, self.config.crop_padding_pt), block)
+        out.text, out.format, out.text_source = content.text, content.format, route
+        out.lines = _derived_lines(content.text, block.bbox) if content.format == "text" else []
+        return out
+
+    def _languages(self, page: PageResult) -> None:
+        detector = self.c.get("language")
+        if detector is None:
+            return
+        for block in page.blocks:
+            if block.text.strip():
+                found = detector.detect(block.text)
+                block.language = found[0] if found else None
+        text = "\n".join(b.text for b in page.blocks if b.text.strip())
+        found = detector.detect(text) if text else None
+        page.language = found[0] if found else None
+
+    def _components_info(self) -> list[ComponentInfo]:
+        infos = [a.info() for a in self.c.adapters.values()]
+        infos += [r.info() for r in self.c.recognizers.values()]
+        return infos
+
+
+def _reading_key(block: LayoutBlock) -> tuple:
+    if block.order is not None:
+        return (0, block.order)
+    return (1, round(block.bbox.y0), block.bbox.x0)
+
+
+def _derived_lines(text: str, bbox: BBox) -> list[BlockLine]:
+    """Řádky z `\\n` v rozpoznaném textu; poloha je odhad (rovnoměrné rozdělení výšky bloku)."""
+    rows = [r for r in text.split("\n") if r.strip()]
+    if not rows:
+        return []
+    step = bbox.height / len(rows)
+    return [BlockLine(text=row, accuracy=PositionAccuracy.DERIVED,
+                      bbox=BBox(bbox.x0, bbox.y0 + i * step, bbox.x1, bbox.y0 + (i + 1) * step))
+            for i, row in enumerate(rows)]
