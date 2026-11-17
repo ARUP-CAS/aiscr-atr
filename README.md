@@ -34,9 +34,14 @@ docker compose up atr-api                  # služba na http://localhost:8080
 docker compose --profile gpu up            # + rozvržení a PaddleOCR-VL (potřebuje GPU a VLLM_IMAGE v .env)
 ```
 
-Rozhraní: `POST /convert` (soubor, nepovinně `forced_pages` jako JSON
-`{"číslo strany": "důvod"}` a `sha512`), `GET /info`, `GET /health`.
-Chyby mají tvar `{"status", "reason", "detail"}`.
+Rozhraní ([`docs/openapi.json`](docs/openapi.json)): `POST /convert` (soubor, nepovinně
+`forced_pages` jako JSON `{"číslo strany": "důvod"}`, `sha512` a `paradata=true`),
+`GET /info`, `GET /health`. Chyby mají tvar `{"status", "reason", "detail"}`.
+
+Výstup se před vydáním ověřuje návrhem schématu
+[`atr/schema/docproc.schema.json`](atr/schema/docproc.schema.json) (normativní verze vznikne
+v [aiscr-docs-pipeline#17](https://github.com/ARUP-CAS/aiscr-docs-pipeline/issues/17)).
+Paradata (`paradata=true`) mají tvar RO-Crate Process Run Crate.
 
 ## Licence
 

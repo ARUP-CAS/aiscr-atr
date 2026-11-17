@@ -59,6 +59,13 @@ class Pipeline:
 
         result = self.process(document)
         output = self.c["assembler"].assemble(result)
+        if self.config.validate_output:
+            from atr import validation
+
+            problems = validation.errors(output)
+            if problems:
+                # Neplatný výstup se nevydává; je to chyba služby, ne vstupu.
+                raise PipelineError("invalid_output", "; ".join(problems[:5]))
         return output, paradata.build(result, output)
 
     def process(self, document: DocumentInput) -> DocumentResult:

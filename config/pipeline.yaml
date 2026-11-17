@@ -5,6 +5,7 @@ pipeline:
   render_dpi: 200
   crop_padding_pt: 2
   min_text_coverage: 0.6    # neúplná textová vrstva (méně textu než bloků) → strana na OCR
+  validate_output: true     # výstup ověřit schématem atr/schema/docproc.schema.json
   mask_neighbours: true      # ve výřezu zabílit části sousedních bloků
   recognize_concurrency: 4   # souběžné bloky jedné strany; llama.cpp: stejně jako --parallel
 

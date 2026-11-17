@@ -202,3 +202,22 @@ def test_incomplete_text_layer_goes_to_ocr():
     assert entry["route"] == "ocr"
     assert entry["reason"].startswith("text_layer_incomplete")
     assert [b["content"] for b in out["pages"][0]["blocks"]] == ["rozpoznaný text"] * 2
+
+
+def test_output_conforms_to_schema_draft():
+    from atr import validation
+
+    for forced in ({}, {4: "needs_atr"}):
+        out = make_pipeline().run(doc(forced))
+        assert validation.errors(out) == []
+
+
+def test_validation_catches_missing_page_in_routing():
+    from atr import validation
+
+    out = make_pipeline().run(doc())
+    out["metadata"]["routing"]["pages"].pop(1)
+    assert any("routing" in e for e in validation.errors(out))
+    out = make_pipeline().run(doc())
+    out["pages"][0]["blocks"][0]["bbox"] = [0, 0, 9999, 10]
+    assert any("mimo stranu" in e for e in validation.errors(out))
