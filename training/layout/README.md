@@ -50,30 +50,36 @@ python training/layout/build_dataset.py --ladas ~/.cache/aiscr-atr/datasets/lada
 python training/layout/to_paddlex.py ~/.cache/aiscr-atr/datasets/ppdoclayoutv3-hw \
     --out ~/.cache/aiscr-atr/datasets/ppdoclayoutv3-hw-paddlex --layout-url http://127.0.0.1:18002
 
-# 3. trénink v PaddleX (modul layout_analysis) – na stroji x86_64 s CUDA 12.6/12.9
-python main.py -c paddlex/configs/modules/layout_analysis/PP-DocLayoutV3.yaml \
-    -o Global.mode=check_dataset -o Global.dataset_dir=DATASET
-python main.py -c ... -o Global.mode=train -o Global.dataset_dir=DATASET
-python main.py -c ... -o Global.mode=evaluate -o Global.dataset_dir=DATASET
+# 3. trénink v PyTorch (AMD ROCm, NVIDIA CUDA i DGX Spark)
+pip install -r training/layout/requirements.txt   # + torch podle GPU, viz requirements.txt
+python training/layout/train_torch.py --data ~/.cache/aiscr-atr/datasets/ppdoclayoutv3-hw-paddlex \
+    --out runs/baseline --eval-only                 # výchozí model pro srovnání
+python training/layout/train_torch.py --data ~/.cache/aiscr-atr/datasets/ppdoclayoutv3-hw-paddlex \
+    --out runs/hw-v1 --epochs 30 --batch-size 8
 
-# 4. převod do safetensors pro transformers (služba rozvržení)
-python main.py -c ... -o Global.mode=pdparams2safetensors \
-    -o Pdparams2safetensors.input_path=output/best_model/best_model/model.pdparams \
-    -o Pdparams2safetensors.output_dir=export/
+# 4. výsledek runs/hw-v1/best je ve formátu transformers; služba rozvržení ho načte:
+#    MODEL_ID=/cesta/runs/hw-v1/best MODEL_REVISION=main
 ```
 
 ## Kde trénovat
 
-PaddlePaddle nemá GPU sestavení pro aarch64, takže **DGX Spark oficiálně
-nepůjde** (jen vlastní překlad PaddlePaddle ze zdrojů, nepodporované).
-Spolehlivá cesta je PaddleX na x86_64 s NVIDIA GPU, tedy plánovaná **4090**.
-DGX Spark se hodí na kroky v PyTorch: pseudo-popisky (krok 2) a vyhodnocení
-převedeného modelu přes transformers.
+Oficiální trénink PP-DocLayoutV3 je jen v PaddleX a PaddlePaddle nemá GPU sestavení
+pro AMD (ROCm) ani pro ARM (DGX Spark). Proto `train_torch.py` trénuje přímo
+implementaci z transformers v PyTorch:
+
+- ztráta RT-DETR z transformers (stejná rodina modelů): třídy a polohy bloků,
+  pomocné ztráty dekodéru, denoising;
+- hlava tříd se rozšíří z 25 na 26; původní třídy převezmou váhy, `handwriting`
+  startuje z vah třídy `text`;
+- hlava pořadí čtení a hlava masek jsou zmrazené (data je nemají);
+- běží na AMD RX 7900 XTX (ROCm), NVIDIA i DGX Spark; ověřeno na CPU na pár krocích.
+
+Pořadí čtení se tak netrénuje, ale ani nezhorší přímo; změna sdílených vrstev
+ho může ovlivnit, proto ho po tréninku zkontrolovat.
 
 ## Otevřené body
 
-- Revize mapy zón (formuláře, titulní strana, `MainZone-Ab`).
-- Anotace AMČR jsou interní: model na nich natrénovaný zveřejnit lze, data ne.
-  Pokud by neměly jít ani do tréninku, stačí je vynechat (`--escriptorium` bez argumentů).
-- Pořadí čtení se učí z předpovědí původního modelu; vlastní anotace pořadí by ho zlepšily.
+- Mapa zón potvrzená 17. 11. 2026 (formuláře jako `table`).
+- Anotace AMČR smí do tréninku (17. 11. 2026); zveřejní se model, ne data.
+- Hlava pořadí čtení se zatím netrénuje; vlastní anotace pořadí by umožnily ji dotrénovat.
 - Zveřejnění: licence modelu Apache-2.0 (jako PP-DocLayoutV3), uvést LADaS (CC-BY-4.0).

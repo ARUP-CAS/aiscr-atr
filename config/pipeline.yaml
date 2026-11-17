@@ -49,6 +49,13 @@ ports:
         seal: figure
         formula: formula
         formula_number: formula
+        # názvy, které má až dotrénovaný model (původní model je slučuje)
+        header_image: figure
+        footer_image: figure
+        display_formula: formula
+        inline_formula: formula
+        vertical_text: text
+        handwriting: handwriting
 
   # obecné vyřešení překryvů mezi bloky (bez pravidel pro konkrétní dokumenty)
   layout_refiner:
