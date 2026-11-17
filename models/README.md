@@ -12,3 +12,20 @@ Jeden model = jedna složka = jeden obraz. Rozhraní je v
 
 Nový model: přidej složku s `Dockerfile` a tenkým serverem podle rozhraní,
 službu do `docker-compose.yml` a adaptér a řádek do `config/pipeline.yaml`.
+
+## ArchaeoDocLayout (rozvržení se třídou `handwriting`)
+
+Dotrénovaný PP-DocLayoutV3 je na Hugging Face jako
+[`aiscr/ArchaeoDocLayout`](https://huggingface.co/aiscr/ArchaeoDocLayout) (Apache-2.0, značka `v0.1`;
+postup a výsledky v [`training/layout/README.md`](../training/layout/README.md)).
+Repozitář je zatím soukromý, proto výchozí compose používá původní PP-DocLayoutV3,
+který třídu `handwriting` nezná. Obraz s ArchaeoDocLayout:
+
+```bash
+cd models/layout-ppdoclayoutv3
+HF_TOKEN=… docker build --secret id=hf_token,env=HF_TOKEN -f Dockerfile.onnx \
+  --build-arg MODEL_ID=aiscr/ArchaeoDocLayout --build-arg MODEL_REVISION=v0.1 \
+  -t ghcr.io/arup-cas/aiscr-atr-layout-ppdoclayoutv3:archaeodoclayout-v0.1 .
+```
+
+Po zveřejnění repozitáře token odpadne a stačí změnit výchozí `MODEL_ID` a `MODEL_REVISION`.

@@ -137,4 +137,5 @@ rozdíl jsou 3 formuláře na malém vzorku. `hw-v2` má stabilnější průběh
 - Mapa zón potvrzená 17. 11. 2026 (formuláře jako `table`).
 - Anotace AMČR smí do tréninku (17. 11. 2026); zveřejní se model, ne data.
 - Hlava pořadí čtení se zatím netrénuje; vlastní anotace pořadí by umožnily ji dotrénovat.
-- Zveřejnění: licence modelu Apache-2.0 (jako PP-DocLayoutV3), uvést LADaS (CC-BY-4.0).
+- Zveřejnění: běh `hw-v1` je na Hugging Face jako `aiscr/ArchaeoDocLayout`, značka `v0.1`
+  (Apache-2.0, zatím soukromý repozitář); `hw-v2` zůstává jen na trénovacím stroji.

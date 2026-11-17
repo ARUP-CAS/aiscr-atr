@@ -9,7 +9,12 @@ ENV PIP_NO_CACHE_DIR=1
 RUN pip install --index-url https://download.pytorch.org/whl/cpu torch==2.9.1 torchvision==0.24.1
 RUN pip install transformers==5.23.0 opencv-python-headless==4.12.0.88 "onnx==1.19.1" onnxscript pillow numpy
 COPY export_onnx.py /src/
-RUN python /src/export_onnx.py --model-id "${MODEL_ID}" --revision "${MODEL_REVISION}" --out /opt/model/model.onnx
+# Soukromý repozitář modelu: token předat jako tajemství sestavení, do obrazu se neuloží:
+#   HF_TOKEN=… docker build --secret id=hf_token,env=HF_TOKEN -f Dockerfile.onnx \
+#     --build-arg MODEL_ID=aiscr/ArchaeoDocLayout --build-arg MODEL_REVISION=v0.1 .
+RUN --mount=type=secret,id=hf_token,required=false \
+    HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)" \
+    python /src/export_onnx.py --model-id "${MODEL_ID}" --revision "${MODEL_REVISION}" --out /opt/model/model.onnx
 
 FROM python:3.12-slim
 ENV PIP_NO_CACHE_DIR=1 MODEL_PATH=/opt/model/model.onnx
