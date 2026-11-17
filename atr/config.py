@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,6 +40,8 @@ class PipelineConfig:
     recognizers: dict[str, AdapterSpec]
     render_dpi: float = 200.0
     crop_padding_pt: float = 2.0
+    # Kolik bloků jedné strany se rozpoznává souběžně (služby modelů zvládají dávky).
+    recognize_concurrency: int = 1
 
 
 class ConfigError(ValueError):
@@ -80,12 +84,30 @@ def parse(raw: dict[str, Any]) -> PipelineConfig:
         recognizers=recognizers,
         render_dpi=float(pipeline.get("render_dpi", 200)),
         crop_padding_pt=float(pipeline.get("crop_padding_pt", 2)),
+        recognize_concurrency=int(pipeline.get("recognize_concurrency", 1)),
     )
+
+
+_ENV = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
+
+
+def _expand(text: str) -> str:
+    """${PROMENNA} a ${PROMENNA:-výchozí} z prostředí, aby adresy služeb šly měnit bez úpravy souboru."""
+
+    def repl(m: re.Match) -> str:
+        value = os.environ.get(m.group(1))
+        if value is None:
+            if m.group(2) is None:
+                raise ConfigError(f"proměnná prostředí {m.group(1)} není nastavená")
+            return m.group(2)
+        return value
+
+    return _ENV.sub(repl, text)
 
 
 def load(path: str | Path) -> PipelineConfig:
     with open(path, encoding="utf-8") as fh:
-        return parse(yaml.safe_load(fh) or {})
+        return parse(yaml.safe_load(_expand(fh.read())) or {})
 
 
 @dataclass

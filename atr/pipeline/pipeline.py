@@ -10,6 +10,8 @@ a `config/pipeline.yaml`.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from atr.config import Components, PipelineConfig
 from atr.ports.errors import DependencyError
 from atr.ports.types import (
@@ -100,8 +102,13 @@ class Pipeline:
                 block.text_source = Route.DIGITAL
         else:
             try:
-                page.blocks = [self._recognize(image, block, i, decision.route)
-                               for i, block in enumerate(layout)]
+                jobs = [(block, i) for i, block in enumerate(layout)]
+                if self.config.recognize_concurrency > 1 and len(jobs) > 1:
+                    with ThreadPoolExecutor(self.config.recognize_concurrency) as pool:
+                        page.blocks = list(pool.map(
+                            lambda job: self._recognize(image, job[0], job[1], decision.route), jobs))
+                else:
+                    page.blocks = [self._recognize(image, b, i, decision.route) for b, i in jobs]
             except DependencyError:
                 raise  # nedostupná služba: úlohu jde zopakovat, není to selhání rozpoznání
             except Exception as exc:

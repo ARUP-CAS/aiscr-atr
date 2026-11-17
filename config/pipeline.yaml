@@ -4,6 +4,7 @@
 pipeline:
   render_dpi: 200
   crop_padding_pt: 2
+  recognize_concurrency: 4   # souběžné bloky jedné strany; llama.cpp: stejně jako --parallel
 
 ports:
   page_source:
@@ -21,7 +22,7 @@ ports:
   layout:
     adapter: http
     params:
-      url: http://layout:8000
+      url: ${LAYOUT_URL:-http://layout:8000}
       min_confidence: 0.3
       # třída PP-DocLayoutV3 → typ bloku ve výstupu
       # třída PP-DocLayoutV3 (viz GET /info služby layout) → typ bloku ve výstupu
@@ -62,18 +63,18 @@ ports:
 recognizers:
   paddle-text:
     adapter: openai
-    params: {url: http://ocr-text:8000/v1, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "OCR:", licence: Apache-2.0}
+    params: {url: ${OCR_TEXT_URL:-http://ocr-text:8000/v1}, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "OCR:", licence: Apache-2.0}
   paddle-table:
     adapter: openai
-    params: {url: http://ocr-text:8000/v1, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "Table Recognition:",
+    params: {url: ${OCR_TEXT_URL:-http://ocr-text:8000/v1}, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "Table Recognition:",
              output_format: html, licence: Apache-2.0}
   paddle-formula:
     adapter: openai
-    params: {url: http://ocr-text:8000/v1, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "Formula Recognition:",
+    params: {url: ${OCR_TEXT_URL:-http://ocr-text:8000/v1}, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "Formula Recognition:",
              output_format: latex, licence: Apache-2.0}
   # glm-text:
   #   adapter: openai
-  #   params: {url: http://ocr-alt:8000/v1, model: zai-org/GLM-OCR, prompt: "Text Recognition:", licence: MIT}
+  #   params: {url: ${OCR_ALT_URL:-http://ocr-alt:8000/v1}, model: zai-org/GLM-OCR, prompt: "Text Recognition:", licence: MIT}
 
 # Typ bloku → rozpoznávač. Typ, který tu není (figure), se nerozpoznává
 # a ve výstupu je jen polohou.

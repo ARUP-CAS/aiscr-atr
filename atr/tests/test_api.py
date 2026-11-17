@@ -22,7 +22,7 @@ DEAD_URL = "http://127.0.0.1:9"  # port discard: spojení se odmítne
 @pytest.fixture()
 def client(monkeypatch, tmp_path):
     cfg = (ROOT / "config" / "pipeline.yaml").read_text(encoding="utf-8")
-    cfg = cfg.replace("http://layout:8000", DEAD_URL)
+    cfg = cfg.replace("${LAYOUT_URL:-http://layout:8000}", DEAD_URL)
     path = tmp_path / "pipeline.yaml"
     path.write_text(cfg, encoding="utf-8")
     monkeypatch.setenv("ATR_CONFIG", str(path))

@@ -3,6 +3,10 @@
 #   docker compose up atr-api layout          # služba + rozvržení na CPU
 #   docker compose --profile gpu up           # + PaddleOCR-VL (GPU)
 #   docker compose --profile gpu --profile alt up   # + GLM-OCR
+#
+# Bez NVIDIA (AMD/Intel přes Vulkan, llama.cpp) – jen nativní Docker engine, ne Docker Desktop,
+# protože ten GPU do kontejneru nepustí. Modely GGUF stáhne scripts/fetch-gguf.sh:
+#   OCR_TEXT_URL=http://ocr-text-vulkan:8000/v1 docker --context default compose --profile vulkan up
 
 x-gpu: &gpu
   deploy:
@@ -22,6 +26,8 @@ services:
     ports: ["8080:8000"]
     environment:
       ATR_CONFIG: /app/config/pipeline.yaml
+      OCR_TEXT_URL: ${OCR_TEXT_URL:-http://ocr-text:8000/v1}
+      OCR_ALT_URL: ${OCR_ALT_URL:-http://ocr-alt:8000/v1}
     volumes:
       - ./config:/app/config:ro
 
@@ -51,6 +57,26 @@ services:
       --max-num-seqs 64 --gpu-memory-utilization 0.4
     volumes: [hf-cache:/root/.cache/huggingface]
     <<: *gpu
+
+  ocr-text-vulkan:
+    profiles: [vulkan]
+    image: ghcr.io/ggml-org/llama.cpp@sha256:5c73025f2072135ad37e306db9a57c685d8a349cfa5cb82b5c0f385b97567c94  # server-vulkan
+    command: >-
+      -m /models/paddleocr-vl-1.6/model.gguf --mmproj /models/paddleocr-vl-1.6/mmproj.gguf
+      --host 0.0.0.0 --port 8000 --temp 0 -ngl 99 -c 16384 --parallel 4
+    devices: [/dev/dri]
+    group_add: [video, render]
+    volumes: ["${GGUF_DIR:-~/.cache/aiscr-atr/gguf}:/models:ro"]
+
+  ocr-alt-vulkan:
+    profiles: [vulkan-alt]
+    image: ghcr.io/ggml-org/llama.cpp@sha256:5c73025f2072135ad37e306db9a57c685d8a349cfa5cb82b5c0f385b97567c94  # server-vulkan
+    command: >-
+      -m /models/glm-ocr/model.gguf --mmproj /models/glm-ocr/mmproj.gguf
+      --host 0.0.0.0 --port 8000 --temp 0 -ngl 99 -c 16384 --parallel 4
+    devices: [/dev/dri]
+    group_add: [video, render]
+    volumes: ["${GGUF_DIR:-~/.cache/aiscr-atr/gguf}:/models:ro"]
 
   pageclass:
     profiles: [pageclass]
