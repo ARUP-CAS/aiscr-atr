@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from contextlib import asynccontextmanager
 
 import numpy as np
 import onnxruntime as ort
@@ -22,13 +23,8 @@ DEDUPE_IOU = float(os.environ.get("DEDUPE_IOU", "0.9"))
 MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(60_000_000)))
 THREADS = int(os.environ.get("ORT_THREADS", "0"))  # 0 = podle počtu jader
 
-app = FastAPI(title="layout-ppdoclayoutv3-onnx")
-_state: dict = {}
-_lock = threading.Lock()
 
-
-@app.on_event("startup")
-def startup() -> None:
+def _load() -> None:
     options = ort.SessionOptions()
     if THREADS:
         options.intra_op_num_threads = THREADS
@@ -38,6 +34,17 @@ def startup() -> None:
     meta_path = os.path.splitext(MODEL_PATH)[0] + ".json"
     with open(meta_path, encoding="utf-8") as fh:
         _state["meta"] = json.load(fh)
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    _load()
+    yield
+
+
+app = FastAPI(title="layout-ppdoclayoutv3-onnx", lifespan=_lifespan)
+_state: dict = {}
+_lock = threading.Lock()
 
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:

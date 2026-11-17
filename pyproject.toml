@@ -28,6 +28,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["atr"]
+exclude = ["atr/tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["atr/tests"]

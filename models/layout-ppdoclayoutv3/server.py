@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from contextlib import asynccontextmanager
 
 import torch
 from common import PredictRequest, decode_image, dedupe
@@ -27,7 +28,13 @@ DEDUPE_IOU = float(os.environ.get("DEDUPE_IOU", "0.9"))
 DEVICE = os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
 MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(60_000_000)))
 
-app = FastAPI(title="layout-ppdoclayoutv3")
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    _load()
+    yield
+
+
+app = FastAPI(title="layout-ppdoclayoutv3", lifespan=_lifespan)
 _lock = threading.Lock()
 _state: dict = {}
 
@@ -37,11 +44,6 @@ def _load() -> None:
     model = AutoModelForObjectDetection.from_pretrained(MODEL_ID, revision=MODEL_REVISION).to(DEVICE).eval()
     processor = AutoImageProcessor.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
     _state.update(model=model, processor=processor, load_s=round(time.time() - t, 2))
-
-
-@app.on_event("startup")
-def startup() -> None:
-    _load()
 
 
 @app.get("/health")

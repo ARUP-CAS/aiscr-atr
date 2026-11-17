@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from atr import config, registry
+from atr.paradata import canonical_json
 from atr.ports.errors import InputError
 from atr.ports.types import DocumentInput
 
@@ -68,8 +69,14 @@ def convert(args: argparse.Namespace) -> int:
     except PipelineError as exc:
         print(json.dumps({"reason": exc.reason, "detail": exc.detail, "pages": exc.pages}), file=sys.stderr)
         return 2
-    json.dump(out, sys.stdout, ensure_ascii=False, indent=1)
-    print()
+    if args.pretty:
+        # Čitelný výpis; otisk v paradatech platí pro kanonickou podobu, ne pro tento výpis.
+        json.dump(out, sys.stdout, ensure_ascii=False, indent=1)
+        print()
+    else:
+        # Přesně ty bajty, ke kterým patří SHA-512 a contentSize v paradatech.
+        sys.stdout.buffer.write(canonical_json(out))
+        sys.stdout.buffer.flush()
     if args.paradata:
         Path(args.paradata).write_text(json.dumps(para, ensure_ascii=False, indent=1), encoding="utf-8")
     return 0
@@ -93,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config", default="config/pipeline.yaml")
     p.add_argument("--forced", nargs="*")
     p.add_argument("--paradata", help="uložit paradata do souboru (JSON-LD)")
+    p.add_argument("--pretty", action="store_true",
+                   help="odsazený výpis pro čtení (neodpovídá otisku v paradatech)")
     p.set_defaults(func=convert)
 
     args = parser.parse_args(argv)

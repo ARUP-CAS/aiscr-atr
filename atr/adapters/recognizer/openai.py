@@ -42,26 +42,31 @@ class OpenAIBlockRecognizer:
 
     def recognize(self, crop: PageImage, block: LayoutBlock) -> RecognizedContent:
         image_url = "data:image/png;base64," + base64.b64encode(crop.png).decode("ascii")
-        try:
-            resp = self._post(image_url)
-        except httpx.HTTPError as exc:
-            raise classify_http_error("recognizer", f"{self.url} ({self.model})", exc) from exc
-        choice = resp.json()["choices"][0]
-        finish = choice.get("finish_reason")
-        if finish not in (None, "stop"):
-            # Výstup useknutý limitem tokenů (nebo jinak nedokončený) není úplný výsledek.
-            raise ProcessingError("recognition_incomplete",
-                                  f"model {self.model} skončil s finish_reason={finish!r}")
-        text = choice["message"]["content"] or ""
-        return RecognizedContent(text=text.strip(), format=self.output_format)
+        # Výstup useknutý limitem tokenů není úplný výsledek. Jednou se zkusí znovu
+        # s dvojnásobným limitem (hustá tabulka); když ani to nestačí, blok selže.
+        finish = None
+        for max_tokens in (self.max_tokens, self.max_tokens * 2):
+            try:
+                resp = self._post(image_url, max_tokens)
+            except httpx.HTTPError as exc:
+                raise classify_http_error("recognizer", f"{self.url} ({self.model})", exc) from exc
+            choice = resp.json()["choices"][0]
+            finish = choice.get("finish_reason")
+            if finish in (None, "stop"):
+                text = choice["message"]["content"] or ""
+                return RecognizedContent(text=text.strip(), format=self.output_format)
+            if finish != "length":
+                break
+        raise ProcessingError("recognition_incomplete",
+                              f"model {self.model} skončil s finish_reason={finish!r}")
 
-    def _post(self, image_url: str) -> httpx.Response:
+    def _post(self, image_url: str, max_tokens: int) -> httpx.Response:
         resp = self.client.post(
             f"{self.url}/chat/completions",
             json={
                 "model": self.model,
                 "temperature": 0.0,
-                "max_tokens": self.max_tokens,
+                "max_tokens": max_tokens,
                 "messages": [
                     {
                         "role": "user",

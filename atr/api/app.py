@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 from fastapi import FastAPI, File, Form, UploadFile
@@ -21,8 +22,18 @@ from atr.pipeline import Pipeline, PipelineError
 from atr.ports.errors import DependencyError, InputError
 from atr.ports.types import DocumentInput
 
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    # Konfiguraci a modely v procesu (jazyk) načíst při startu, ne při prvním požadavku:
+    # chybná konfigurace službu nespustí a první /convert neblokuje /health.
+    await run_in_threadpool(get_pipeline)
+    yield
+
+
 app = FastAPI(
     title="aiscr-atr",
+    lifespan=_lifespan,
     version=__version__,
     description=(
         "Otevřená služba ATR: z dokumentu (PDF, sken, obrázek) vytvoří `atr/docproc-json` "
@@ -101,20 +112,22 @@ async def convert(
     except (ValueError, AttributeError) as exc:
         return _error(400, "invalid_forced_pages", str(exc))
 
-    data = await _read_limited(file)
-    if data is None:
-        return _error(413, "payload_too_large", f"soubor je větší než {MAX_UPLOAD_MB} MB")
-    document = DocumentInput(
-        data=data,
-        filename=file.filename or "document",
-        mime_type=file.content_type,
-        sha512=sha512,
-        forced_pages=forced,
-    )
     try:
         # Potrubí je synchronní (PDFium, blokující HTTP): běží ve vlákně, aby služba
-        # dál odpovídala na /health a /info. Souběžné převody omezuje semafor.
+        # dál odpovídala na /health a /info. Souběžné převody omezuje semafor; soubor
+        # se do paměti čte až s volným místem (do té doby leží v dočasném souboru).
         async with _slots():
+            data = await _read_limited(file)
+            if data is None:
+                return _error(413, "payload_too_large", f"soubor je větší než {MAX_UPLOAD_MB} MB")
+            document = DocumentInput(
+                data=data,
+                filename=file.filename or "document",
+                mime_type=file.content_type,
+                sha512=sha512,
+                forced_pages=forced,
+            )
+            del data
             output, para = await run_in_threadpool(get_pipeline().run_with_paradata, document)
         if paradata:
             # docproc jako kanonické bajty, aby seděl otisk SHA-512 v paradatech

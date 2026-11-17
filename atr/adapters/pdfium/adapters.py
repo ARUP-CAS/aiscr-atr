@@ -21,15 +21,21 @@ _VERSION = f"pypdfium2 {pdfium.version.PYPDFIUM_INFO}, pdfium {pdfium.version.PD
 
 @register("page_source", "pdfium")
 class PdfiumPageSource:
-    def __init__(self, default_image_dpi: float = 300.0) -> None:
+    def __init__(self, default_image_dpi: float = 300.0, max_image_pixels: int = 600_000_000) -> None:
         self.default_image_dpi = default_image_dpi
+        self.max_image_pixels = max_image_pixels
+        # Pillow odmítá obrázky nad dvojnásobek tohoto limitu (ochrana před dekompresní
+        # bombou). Výchozí limit Pillow (89 MP) je pro velkoformátové skeny málo:
+        # A1 při 600 DPI má 279 MP. Nastavení platí pro celý proces.
+        Image.MAX_IMAGE_PIXELS = max_image_pixels // 2
 
     def open(self, document: DocumentInput) -> PdfDocument | ImageDocument:
         return open_document(document, self.default_image_dpi)
 
     def info(self) -> ComponentInfo:
         return ComponentInfo("page_source", "pdfium", _VERSION,
-                             {"default_image_dpi": self.default_image_dpi}, "BSD-3-Clause")
+                             {"default_image_dpi": self.default_image_dpi,
+                              "max_image_pixels": self.max_image_pixels}, "BSD-3-Clause")
 
 
 @register("renderer", "pdfium")
@@ -56,8 +62,7 @@ class PdfiumRenderer:
 
 
 def _render_image(doc: ImageDocument, page: int, dpi: float) -> Image.Image:
-    frame, dpi_x, dpi_y = doc.frames[page - 1]
-    img = frame.convert("RGB") if frame.mode not in ("RGB", "L") else frame
+    img, dpi_x, dpi_y = doc.frame(page)  # už v RGB nebo L, s orientací z EXIF
     sx, sy = dpi / dpi_x, dpi / dpi_y  # různé DPI v osách se tím srovná na čtvercové pixely
     if abs(sx - 1.0) > 1e-3 or abs(sy - 1.0) > 1e-3:
         size = (max(1, round(img.width * sx)), max(1, round(img.height * sy)))
@@ -149,16 +154,19 @@ class PdfiumTextLayerReader:
 
 
 def _image_coverage(p) -> float:
-    """Podíl plochy strany pokrytý rastrovými obrázky (součet, nejvýš 1)."""
+    """Podíl plochy strany pokrytý rastrovými obrázky (součet, nejvýš 1).
+
+    Počítají se i obrázky zabalené ve Form XObject (běžné u skenů z některých
+    skenerů a po úpravách PDF): za takový objekt se bere celý jeho obrys na straně.
+    """
     page = p.handle
-    width, height = p.width_raw, p.height_raw
-    if width <= 0 or height <= 0:
-        return 0.0
     left, bottom, right, top = page.get_cropbox()
+    if right <= left or top <= bottom:
+        return 0.0
     covered = 0.0
     for i in range(pdfium_c.FPDFPage_CountObjects(page)):
         obj = pdfium_c.FPDFPage_GetObject(page, i)
-        if pdfium_c.FPDFPageObj_GetType(obj) != pdfium_c.FPDF_PAGEOBJ_IMAGE:
+        if not _has_image(obj):
             continue
         x0, y0, x1, y1 = (ctypes.c_float() for _ in range(4))
         if not pdfium_c.FPDFPageObj_GetBounds(obj, x0, y0, x1, y1):
@@ -168,3 +176,14 @@ def _image_coverage(p) -> float:
         if w > 0 and h > 0:
             covered += w * h
     return min(1.0, covered / ((right - left) * (top - bottom)))
+
+
+def _has_image(obj, depth: int = 0) -> bool:
+    """Objekt je obrázek, nebo Form XObject, který (i vnořeně) obrázek obsahuje."""
+    kind = pdfium_c.FPDFPageObj_GetType(obj)
+    if kind == pdfium_c.FPDF_PAGEOBJ_IMAGE:
+        return True
+    if kind != pdfium_c.FPDF_PAGEOBJ_FORM or depth >= 8:
+        return False
+    count = pdfium_c.FPDFFormObj_CountObjects(obj)
+    return any(_has_image(pdfium_c.FPDFFormObj_GetObject(obj, i), depth + 1) for i in range(max(count, 0)))

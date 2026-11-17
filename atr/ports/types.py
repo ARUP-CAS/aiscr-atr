@@ -42,9 +42,6 @@ class BBox:
         h = min(self.y1, other.y1) - max(self.y0, other.y0)
         return w * h if w > 0 and h > 0 else 0.0
 
-    def scaled(self, factor: float) -> BBox:
-        return BBox(self.x0 * factor, self.y0 * factor, self.x1 * factor, self.y1 * factor)
-
 
 # --- Vstup ---------------------------------------------------------------
 

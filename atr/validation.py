@@ -17,12 +17,6 @@ import jsonschema
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema" / "docproc.schema.json"
 
 
-class OutputInvalid(ValueError):
-    def __init__(self, errors: list[str]) -> None:
-        super().__init__("; ".join(errors[:5]))
-        self.errors = errors
-
-
 @lru_cache(maxsize=1)
 def _validator() -> jsonschema.protocols.Validator:
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -55,8 +49,3 @@ def errors(output: dict) -> list[str]:
                 break
     return found
 
-
-def validate(output: dict) -> None:
-    problems = errors(output)
-    if problems:
-        raise OutputInvalid(problems)

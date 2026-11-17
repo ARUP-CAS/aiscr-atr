@@ -22,15 +22,13 @@ import statistics
 from pathlib import Path
 
 import httpx
+import yaml
 from PIL import Image
 
-from atr import registry
+from atr import config, registry
 from atr.ports.types import BBox, BlockType, LayoutBlock, PageGeometry
 
-LABELS = {"header": "page_header", "footer": "page_footer", "number": "page_footer", "footnote": "footnote",
-          "vision_footnote": "footnote", "paragraph_title": "heading", "doc_title": "title", "table": "table",
-          "image": "figure", "chart": "figure", "seal": "figure", "figure_title": "caption",
-          "formula": "formula"}
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def kendall(seq: list[int]) -> float | None:
@@ -60,6 +58,9 @@ def main() -> int:
     args = ap.parse_args()
 
     registry.load_builtin_adapters()
+    # Mapa tříd modelu na typy bloků je jen v konfiguraci potrubí, ať se nerozchází.
+    raw = yaml.safe_load(config._expand((ROOT / "config" / "pipeline.yaml").read_text(encoding="utf-8")))
+    labels = raw["ports"]["layout"]["params"]["label_map"]
     refiner = registry.create("layout_refiner", "overlaps")
     orders = {"model": registry.create("reading_order", "model"),
               "xycut": registry.create("reading_order", "xycut")}
@@ -81,7 +82,7 @@ def main() -> int:
                                json={"image_png_base64": base64.b64encode(buf.getvalue()).decode()})
             resp.raise_for_status()
             geometry = PageGeometry(1, img.width, img.height, 0)  # px stačí, poměry se nemění
-            blocks = [LayoutBlock(BlockType(LABELS.get(b["label"], "text")), BBox(*b["bbox_px"]),
+            blocks = [LayoutBlock(BlockType(labels.get(b["label"], "other")), BBox(*b["bbox_px"]),
                                   b["confidence"], b["order"]) for b in resp.json()["blocks"]]
             blocks = refiner.refine(blocks, geometry)
 

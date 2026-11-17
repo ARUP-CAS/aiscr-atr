@@ -87,7 +87,7 @@ def test_layout_adapter_converts_pixels_to_points_and_maps_labels():
 
     detector = HttpLayoutDetector("http://layout", label_map={"paragraph_title": "heading"}, min_confidence=0.3)
     detector.client = httpx.Client(transport=httpx.MockTransport(handler))
-    blocks = detector.detect(PageImage(1, 200, 100, 100, _png()), PageGeometry(1, 36, 36, 0))
+    blocks = detector.detect(PageImage(1, 200, 556, 556, _png()), PageGeometry(1, 200, 200, 0))
     assert [b.type.value for b in blocks] == ["heading", "other"]  # nízká jistota vypadla
     assert (blocks[0].bbox.x0, blocks[0].bbox.y1) == pytest.approx((72.0, 54.0))  # px × 72/200
     assert blocks[0].source_label == "paragraph_title"

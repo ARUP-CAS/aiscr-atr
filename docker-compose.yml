@@ -26,6 +26,7 @@ services:
     ports: ["8080:8000"]
     environment:
       ATR_CONFIG: /app/config/pipeline.yaml
+      LAYOUT_URL: ${LAYOUT_URL:-http://layout:8000}
       OCR_TEXT_URL: ${OCR_TEXT_URL:-http://ocr-text:8000/v1}
       OCR_ALT_URL: ${OCR_ALT_URL:-http://ocr-alt:8000/v1}
       ATR_MAX_UPLOAD_MB: ${ATR_MAX_UPLOAD_MB:-1024}
@@ -66,12 +67,14 @@ services:
     volumes: [hf-cache:/root/.cache/huggingface]
     <<: *gpu
 
+  # -c je kontext pro všechny souběžné požadavky dohromady: 4 × 12288 tokenů, aby se vešel
+  # obrázek bloku a výstup až 8192 tokenů (max_tokens 4096 a jeden opakovaný pokus s 8192).
   ocr-text-vulkan:
     profiles: [vulkan]
     image: ghcr.io/ggml-org/llama.cpp@sha256:5c73025f2072135ad37e306db9a57c685d8a349cfa5cb82b5c0f385b97567c94  # server-vulkan
     command: >-
       -m /models/paddleocr-vl-1.6/model.gguf --mmproj /models/paddleocr-vl-1.6/mmproj.gguf
-      --host 0.0.0.0 --port 8000 --temp 0 -ngl 99 -c 16384 --parallel 4
+      --host 0.0.0.0 --port 8000 --temp 0 -ngl 99 -c 49152 --parallel 4
     devices: [/dev/dri]
     group_add: [video, render]
     volumes: ["${GGUF_DIR:-~/.cache/aiscr-atr/gguf}:/models:ro"]
@@ -81,7 +84,7 @@ services:
     image: ghcr.io/ggml-org/llama.cpp@sha256:5c73025f2072135ad37e306db9a57c685d8a349cfa5cb82b5c0f385b97567c94  # server-vulkan
     command: >-
       -m /models/glm-ocr/model.gguf --mmproj /models/glm-ocr/mmproj.gguf
-      --host 0.0.0.0 --port 8000 --temp 0 -ngl 99 -c 16384 --parallel 4
+      --host 0.0.0.0 --port 8000 --temp 0 -ngl 99 -c 49152 --parallel 4
     devices: [/dev/dri]
     group_add: [video, render]
     volumes: ["${GGUF_DIR:-~/.cache/aiscr-atr/gguf}:/models:ro"]

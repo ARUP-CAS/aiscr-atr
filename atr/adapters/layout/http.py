@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import time
 
 import httpx
 
@@ -16,6 +17,8 @@ from atr.ports.types import (
     PageImage,
 )
 from atr.registry import register
+
+INFO_TTL_S = 60.0
 
 
 @register("layout", "http")
@@ -36,6 +39,7 @@ class HttpLayoutDetector:
         self.min_confidence = min_confidence
         self.client = httpx.Client(timeout=timeout_s)
         self._info: dict | None = None
+        self._info_at = 0.0
 
     def detect(self, image: PageImage, geometry: PageGeometry) -> list[LayoutBlock]:
         try:
@@ -53,10 +57,16 @@ class HttpLayoutDetector:
                 continue
             x0, y0, x1, y1 = item["bbox_px"]
             label = item["label"]
+            # Obrázek je zaokrouhlený na celé pixely, takže blok u okraje může stranu
+            # o zlomek bodu přesáhnout: oříznout na stranu, zdegenerované vypustit.
+            bx0, by0 = max(0.0, x0 * k), max(0.0, y0 * k)
+            bx1, by1 = min(geometry.width, x1 * k), min(geometry.height, y1 * k)
+            if bx1 <= bx0 or by1 <= by0:
+                continue
             blocks.append(
                 LayoutBlock(
                     type=self.label_map.get(label, BlockType.OTHER),
-                    bbox=BBox(x0 * k, y0 * k, x1 * k, y1 * k),
+                    bbox=BBox(bx0, by0, bx1, by1),
                     confidence=float(item["confidence"]),
                     order=item.get("order"),
                     source_label=label,
@@ -65,11 +75,13 @@ class HttpLayoutDetector:
         return blocks
 
     def info(self) -> ComponentInfo:
-        if self._info is None:
+        # Popis modelu obnovovat: po výměně kontejneru rozvržení mají paradata hlásit nový model.
+        if self._info is None or time.monotonic() - self._info_at > INFO_TTL_S:
             try:
                 resp = self.client.get(f"{self.url}/info", timeout=5.0)
                 resp.raise_for_status()
                 self._info = resp.json()
+                self._info_at = time.monotonic()
             except (httpx.HTTPError, ValueError):
                 # Nedostupná služba nesmí shodit /info; zkusí se znovu příště.
                 return ComponentInfo("layout", "unreachable", "unknown", {"url": self.url})
