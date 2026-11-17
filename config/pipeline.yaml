@@ -24,32 +24,29 @@ ports:
       url: http://layout:8000
       min_confidence: 0.3
       # třída PP-DocLayoutV3 → typ bloku ve výstupu
+      # třída PP-DocLayoutV3 (viz GET /info služby layout) → typ bloku ve výstupu
       label_map:
         text: text
-        paragraph_title: heading
-        doc_title: title
-        abstract: text
         content: text
+        abstract: text
+        aside_text: text
+        algorithm: text
         reference: text
         reference_content: text
-        aside_text: text
-        vertical_text: text
-        number: page_footer
+        paragraph_title: heading
+        doc_title: title
+        figure_title: caption
         header: page_header
         footer: page_footer
+        number: page_footer
         footnote: footnote
         vision_footnote: footnote
         table: table
         image: figure
         chart: figure
         seal: figure
-        header_image: figure
-        footer_image: figure
-        figure_title: caption
-        display_formula: formula
-        inline_formula: formula
+        formula: formula
         formula_number: formula
-        algorithm: text
 
   text_assigner:
     adapter: overlap

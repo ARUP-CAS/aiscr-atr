@@ -130,7 +130,7 @@ Adresy kontejnerů jsou v `config/pipeline.yaml`. Volitelné služby se zapínaj
 |---|---|---|
 | **0. Základ** | datové typy, rozhraní komponent, konfigurace, testovací sada (sken, born-digital, smíšené, otočené a oříznuté strany, rukopis) | sada je v repozitáři a rozhraní mají testy. *Stav 17. 11.: kostra, porty, registr, potrubí, první adaptéry a testy hotové; chybí testovací sada dokumentů.* |
 | **1. Strany a textová vrstva** | komponenty 1–4 | u každé strany sady sedí rozměry a text s polohou, i u otočených a oříznutých. *Stav 17. 11.: adaptéry pdfium (PDF i obrázky, TIFF více stran), syntetická sada a `python -m atr inspect` hotové; skutečný vzorek z AMČR chybí.* |
-| **2. Rozvržení** | komponenta 8 s PP-DocLayoutV3 | bloky s typem a polohou na textových i skenovaných stranách ve stejných souřadnicích |
+| **2. Rozvržení** | komponenta 8 s PP-DocLayoutV3 | bloky s typem a polohou na textových i skenovaných stranách ve stejných souřadnicích. *Stav 17. 11.: kontejner `models/layout-ppdoclayoutv3` (transformers, CPU ~0,6 s na stranu), born-digital PDF projde celým potrubím v compose; chybí vyhodnocení na vzorku AMČR.* |
 | **3. Směrování** | komponenty 5 a 7, vynucené strany | každá strana sady má správnou trasu s důvodem |
 | **4. Rozpoznání bloků** | komponenta 10, srovnání PaddleOCR-VL a GLM-OCR na českém vzorku | změřená chybovost obou modelů, zvolený výchozí |
 | **5. Složení** | komponenty 9, 11, 13, 14 | první dokument projde celým potrubím a výstup projde schématem z #17 |

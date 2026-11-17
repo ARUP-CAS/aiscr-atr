@@ -72,3 +72,22 @@ def test_layout_adapter_reports_dependency_error():
     image = PageImage(1, 72, 100, 100, _png())
     with pytest.raises(DependencyError):
         detector.detect(image, PageGeometry(1, 100, 100, 0))
+
+
+def test_layout_adapter_converts_pixels_to_points_and_maps_labels():
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/predict"
+        return httpx.Response(200, json={"blocks": [
+            {"label": "paragraph_title", "bbox_px": [200, 100, 400, 150], "confidence": 0.9, "order": 0},
+            {"label": "neznama_trida", "bbox_px": [0, 0, 10, 10], "confidence": 0.8, "order": 1},
+            {"label": "text", "bbox_px": [0, 0, 10, 10], "confidence": 0.1, "order": 2},
+        ]})
+
+    detector = HttpLayoutDetector("http://layout", label_map={"paragraph_title": "heading"}, min_confidence=0.3)
+    detector.client = httpx.Client(transport=httpx.MockTransport(handler))
+    blocks = detector.detect(PageImage(1, 200, 100, 100, _png()), PageGeometry(1, 36, 36, 0))
+    assert [b.type.value for b in blocks] == ["heading", "other"]  # nízká jistota vypadla
+    assert (blocks[0].bbox.x0, blocks[0].bbox.y1) == pytest.approx((72.0, 54.0))  # px × 72/200
+    assert blocks[0].source_label == "paragraph_title"

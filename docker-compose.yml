@@ -1,7 +1,7 @@
 # Hlavní služba + kontejnery s modely. Modely na GPU jsou v profilu `gpu`,
 # volitelné v profilech `alt` a `pageclass`:
-#   docker compose up atr-api                 # jen služba (vývoj s adaptéry fake)
-#   docker compose --profile gpu up           # služba + rozvržení + PaddleOCR-VL
+#   docker compose up atr-api layout          # služba + rozvržení na CPU
+#   docker compose --profile gpu up           # + PaddleOCR-VL (GPU)
 #   docker compose --profile gpu --profile alt up   # + GLM-OCR
 
 x-gpu: &gpu
@@ -16,6 +16,8 @@ x-gpu: &gpu
 services:
   atr-api:
     build: .
+    depends_on:
+      layout: {condition: service_healthy}
     image: ghcr.io/arup-cas/aiscr-atr:dev
     ports: ["8080:8000"]
     environment:
@@ -24,11 +26,12 @@ services:
       - ./config:/app/config:ro
 
   layout:
-    profiles: [gpu]
+    # Na CPU stačí (~0,6 s na stranu). Pro GPU: build arg TORCH_INDEX a blok `deploy` jako u ocr-text.
     build: models/layout-ppdoclayoutv3
     image: ghcr.io/arup-cas/aiscr-atr-layout-ppdoclayoutv3:dev
-    volumes: [hf-cache:/root/.cache/huggingface]
-    <<: *gpu
+    environment:
+      THRESHOLD: "0.3"
+      DEDUPE_IOU: "0.9"
 
   ocr-text:
     profiles: [gpu]
