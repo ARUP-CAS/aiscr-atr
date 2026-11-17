@@ -189,6 +189,11 @@ class BlockType(StrEnum):
     OTHER = "other"
 
 
+# Typy bloků, které nenesou text z textové vrstvy a s ostatními se nedělí o plochu:
+# obrázky a ruční písmo (to se zatím jen označuje, nečte).
+NON_TEXT_TYPES = frozenset({BlockType.FIGURE, BlockType.HANDWRITING})
+
+
 class PositionAccuracy(StrEnum):
     """Přesnost polohy řádku (kontrakt #17, bod 13)."""
 

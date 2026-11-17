@@ -4,7 +4,8 @@ Nic specifického pro typ dokumentu, jen geometrie:
 
 1. Vnořený duplikát: čitelný blok, který leží z ≥ `contained` uvnitř jiného
    čitelného bloku, se vypustí (jeho text se přečte s větším blokem).
-   Bloky uvnitř obrázku zůstávají, obrázek se nečte.
+   Bloky uvnitř obrázku zůstávají, obrázek se nečte. Obrázky a ruční písmo
+   se nevypouštějí ani neslučují, jen se označují.
 2. Výrazný překryv dvou bloků stejného typu (překryv ≥ `merge` výšky, resp.
    šířky menšího z nich): bloky se sloučí do jednoho. Typicky dva řádkové
    bloky, které model posadil přes sebe; řez by přesekl písmena.
@@ -17,11 +18,12 @@ from __future__ import annotations
 from dataclasses import replace
 
 from atr import __version__
-from atr.ports.types import BBox, BlockType, ComponentInfo, LayoutBlock, PageGeometry
+from atr.ports.types import NON_TEXT_TYPES, BBox, ComponentInfo, LayoutBlock, PageGeometry
 from atr.registry import register
 
-# Bloky, které se nečtou a nemají se s ostatními dělit o plochu.
-_NOT_READ = {BlockType.FIGURE}
+# Bloky, které se nečtou a nemají se s ostatními dělit o plochu (zůstávají, i když
+# leží uvnitř jiného bloku: chceme vědět, kde jsou).
+_NOT_READ = NON_TEXT_TYPES
 
 
 def _inside(inner: BBox, outer: BBox) -> float:

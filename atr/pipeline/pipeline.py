@@ -191,7 +191,7 @@ class Pipeline:
                     order=block.order if block.order is not None else order)
         name = self.config.recognize.get(block.type)
         if name is None:
-            # Typ bez rozpoznávače (obrázek, kresba): ve výstupu jen polohou.
+            # Typ bez rozpoznávače (obrázek, ruční písmo): ve výstupu jen polohou a typem.
             out.text_source = route
             return out
         content = self.c.recognizers[name].recognize(

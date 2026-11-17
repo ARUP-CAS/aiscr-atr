@@ -101,8 +101,9 @@ recognizers:
     adapter: openai
     params: {url: "${OCR_ALT_URL:-http://ocr-alt:8000/v1}", model: zai-org/GLM-OCR, prompt: "Text Recognition:", licence: MIT}
 
-# Typ bloku → rozpoznávač. Typ, který tu není (figure), se nerozpoznává
-# a ve výstupu je jen polohou.
+# Typ bloku → rozpoznávač. Typ, který tu není, se nerozpoznává a ve výstupu je jen
+# polohou a typem: obrázky (figure) a ruční písmo (handwriting). Ruční písmo zatím
+# žádný model nečte spolehlivě, proto se jen označuje; až bude čím, stačí sem přidat řádek.
 recognize:
   text: paddle-text
   title: paddle-text
@@ -112,8 +113,6 @@ recognize:
   page_header: paddle-text
   page_footer: paddle-text
   footnote: paddle-text
-  # ruční písmo: na první zkoušce ho GLM-OCR četl lépe; zapne se HANDWRITING_RECOGNIZER=glm-text
-  handwriting: ${HANDWRITING_RECOGNIZER:-paddle-text}
   other: paddle-text
   table: paddle-table
   formula: paddle-formula

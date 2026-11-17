@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from atr import __version__
 from atr.ports.types import (
+    NON_TEXT_TYPES,
     BBox,
     Block,
     BlockLine,
@@ -18,7 +19,7 @@ from atr.ports.types import (
 from atr.registry import register
 
 # Typy, do kterých se text z textové vrstvy nepřiřazuje (ve výstupu jen polohou).
-_NO_TEXT = {BlockType.FIGURE}
+_NO_TEXT = NON_TEXT_TYPES
 
 
 @register("text_assigner", "overlap")

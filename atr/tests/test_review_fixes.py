@@ -308,3 +308,40 @@ def test_recognizer_is_not_a_port():
 
 def test_user_unit_reader_survives_unparsable_pdf():
     assert _user_units(b"%PDF-1.7 /UserUnit poskozeno", 3) == [1.0, 1.0, 1.0]
+
+
+# --- ruční písmo se jen označuje ------------------------------------------------
+
+
+def test_handwriting_is_marked_but_not_recognized():
+    """Blok handwriting zůstane ve výstupu s polohou a typem, bez textu a bez volání OCR,
+    a to i když leží celý uvnitř odstavce."""
+    spec = {"pages": [{}]}
+    raw = {
+        "ports": {
+            "page_source": {"adapter": "fake"}, "renderer": {"adapter": "fake"},
+            "text_layer": {"adapter": "fake"}, "text_layer_judge": {"adapter": "rules"},
+            "router": {"adapter": "rules"},
+            "layout": {"adapter": "fake", "params": {"blocks_by_page": {1: [
+                {"type": "text", "bbox": [50, 50, 500, 300], "order": 0},
+                {"type": "handwriting", "bbox": [300, 100, 480, 140], "order": 1}]}}},
+            "layout_refiner": {"adapter": "overlaps"}, "reading_order": {"adapter": "model"},
+            "text_assigner": {"adapter": "overlap"}, "assembler": {"adapter": "docproc"},
+        },
+        "recognizers": {"text": {"adapter": "fake"}}, "recognize": {"text": "text"},
+        "pipeline": {"render_dpi": 72},
+    }
+    cfg = config.parse(raw)
+    pipeline = Pipeline(cfg, config.build(cfg))
+    out = pipeline.run(DocumentInput(json.dumps(spec).encode(), "x"))
+    blocks = out["pages"][0]["blocks"]
+    assert [(b["type"], b["content"]) for b in blocks] == [("text", "rozpoznaný text"), ("handwriting", "")]
+    assert blocks[1]["bbox"] == [300, 100, 480, 140]
+    assert [t for _, t in pipeline.c.recognizers["text"].calls] == [BlockType.TEXT]
+    assert validation.errors(out) == []
+
+
+def test_repository_config_does_not_recognize_handwriting():
+    cfg = config.load(ROOT / "config" / "pipeline.yaml")
+    assert BlockType.HANDWRITING not in cfg.recognize
+    assert BlockType.FIGURE not in cfg.recognize
