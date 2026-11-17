@@ -77,6 +77,61 @@ implementaci z transformers v PyTorch:
 Pořadí čtení se tak netrénuje, ale ani nezhorší přímo; změna sdílených vrstev
 ho může ovlivnit, proto ho po tréninku zkontrolovat.
 
+## Výsledky
+
+### Běh `hw-v1` (17. 11. 2026, RX 7900 XTX, ROCm 6.4)
+
+Učící krok 5e-5 (páteř 5e-6), dávka 8, bf16, asi 5 minut na epochu. Zastaveno po 15 epochách;
+nejlepší je 4. epocha. Celkové mAP pak klesalo jen kvůli vzácným třídám s pseudo-popisky
+(`algorithm`, `chart`), hlavní třídy se neměnily. Proto se nejlepší model nově vybírá podle
+AP50 tříd s ručními anotacemi.
+
+Pokrytí anotovaných oblastí na stranách AMČR mimo trénovací část
+(`scripts/eval_layout_segmonto.py --only`, 38 stran, 833 oblastí):
+
+| oblast | původní PP-DocLayoutV3 | `hw-v1` |
+|---|---|---|
+| rukopisný doplněk (16) | 38 % | 81 % |
+| záhlaví a zápatí (17) | 24 % | 100 % |
+| formulář (97) | 79 % | 99 % |
+| podpis, datum, adresa (39) | 82 % | 97 % |
+| nadpis (18) | 89 % | 100 % |
+| odstavec (60) | 93 % | 100 % |
+| celkem | 88 % | 99 % |
+
+Z 13 nalezených ručních doplňků má 11 třídu `handwriting`. Vzorek je malý a 20 z 38 stran
+bylo ve validační části, podle které se vybírala epocha (na váhách se nepodílely).
+
+### Běh `hw-v2` (17. 11. 2026)
+
+Učící krok 2e-5 (páteř 2e-6), 12 epoch, nejlepší model podle AP50 anotovaných tříd.
+Validace roste plynule a od 5. epochy se drží (AP50 anotovaných tříd 0,744–0,751,
+`handwriting` AP50 0,62–0,69); nejlepší je 7. epocha.
+
+Srovnání obou běhů:
+
+| | `hw-v1` | `hw-v2` |
+|---|---|---|
+| validace: mAP anotovaných tříd | 0,506 | 0,505 |
+| validace: mAP všech tříd | 0,431 | 0,434 |
+| AMČR mimo trénink: pokryto | 99 % (chybí 5) | 99 % (chybí 6) |
+| AMČR: rukopisný doplněk pokryt | 81 % (11× `handwriting`) | 81 % (11× `handwriting`) |
+| AMČR: přesná shoda bloku s oblastí | 324 | 259 |
+| AMČR: bloků `text` / `table` | 396 / 58 | 199 / 62 |
+
+Oba modely jsou na validaci i v pokrytí rovnocenné. `hw-v1` vrací navíc jednotlivá pole
+formuláře jako textové bloky uvnitř bloku tabulky; ty úprava překryvů (`layout_refiner`)
+vypustí jako vnořené. Po ní vychází formulář jako jeden blok tabulky takto
+(47 formulářů na 38 stranách AMČR mimo trénink):
+
+| | `hw-v1` | `hw-v2` |
+|---|---|---|
+| formulář jako jeden blok `table` | 43/47 (91 %) | 40/47 (85 %) |
+| bloků uvnitř formuláře (průměr) | 1,4 | 1,7 |
+
+Pro požadavek „formulář = jedna tabulka“ tedy v potrubí vychází o něco lépe `hw-v1`;
+rozdíl jsou 3 formuláře na malém vzorku. `hw-v2` má stabilnější průběh tréninku.
+
 ## Otevřené body
 
 - Mapa zón potvrzená 17. 11. 2026 (formuláře jako `table`).

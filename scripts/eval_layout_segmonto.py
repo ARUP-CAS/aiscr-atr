@@ -96,15 +96,23 @@ def main() -> int:
     ap.add_argument("--min-covered", type=float, default=0.6)
     ap.add_argument("--limit", type=int, default=0, help="nejvýš tolik stran z každého exportu")
     ap.add_argument("--out", type=Path, help="uložit podrobnosti po stranách (JSON)")
+    ap.add_argument("--only", type=Path,
+                    help="soubor se jmény obrázků (bez přípony, jedno na řádek); ostatní strany přeskočit, "
+                         "např. strany, které model neviděl při tréninku")
     args = ap.parse_args()
 
     client = httpx.Client(timeout=120)
     stats = collections.defaultdict(lambda: collections.Counter())
     pred_labels = collections.Counter()
+    matched_labels = collections.defaultdict(collections.Counter)
     details, times = [], []
 
+    only = ({line.strip() for line in args.only.read_text(encoding="utf-8").splitlines() if line.strip()}
+            if args.only else None)
     for export in args.exports:
         parts = [json.loads(line) for line in (export / "parts.jsonl").open(encoding="utf-8")]
+        if only is not None:
+            parts = [p for p in parts if p["image"]["filename"].rsplit(".", 1)[0] in only]
         for part in parts[: args.limit or None]:
             path = export / part["image"]["filename"]
             if not path.is_file():
@@ -119,15 +127,16 @@ def main() -> int:
                                json={"image_png_base64": base64.b64encode(buf.getvalue()).decode()})
             resp.raise_for_status()
             times.append(time.time() - t)
-            preds = [b["bbox_px"] for b in resp.json()["blocks"]]
-            pred_labels.update(b["label"] for b in resp.json()["blocks"])
+            blocks = resp.json()["blocks"]
+            preds = [b["bbox_px"] for b in blocks]
+            pred_labels.update(b["label"] for b in blocks)
 
             page = {"file": path.name, "export": export.name, "regions": []}
             for region in part["regions"]:
                 zone = (region.get("typology") or {}).get("name") or "Undefined"
                 group = GROUPS.get(zone, "ostatní")
                 gt = region["bbox"]
-                best = max((iou(gt, p) for p in preds), default=0.0)
+                best, best_label = max(((iou(gt, b["bbox_px"]), b["label"]) for b in blocks), default=(0.0, None))
                 cov = covered(gt, preds, args.cover)
                 if best >= args.iou:
                     result = "shoda"
@@ -138,6 +147,8 @@ def main() -> int:
                 else:
                     result = "chybí"
                 stats[group][result] += 1
+                if result == "shoda":
+                    matched_labels[group][best_label] += 1
                 page["regions"].append({"zone": zone, "bbox": gt, "best_iou": round(best, 3),
                                         "covered": round(cov, 3), "result": result})
             details.append(page)
@@ -156,6 +167,9 @@ def main() -> int:
     n = sum(total.values())
     print(f"{'celkem':24s} {n:8d} {total['shoda']:7d} {total['rozděleno']:8d} {total['v širším']:9d} "
           f"{total['chybí']:7d} {1 - total['chybí'] / n:8.0%}")
+    print("\nTřída bloku u shod (nejčastější):")
+    for group, c in sorted(matched_labels.items(), key=lambda kv: -sum(kv[1].values())):
+        print(f"  {group:24s} " + ", ".join(f"{k} {v}" for k, v in c.most_common(4)))
     print("\nTřídy modelu:", ", ".join(f"{k} {v}" for k, v in pred_labels.most_common()))
     if args.out:
         args.out.write_text(json.dumps(details, ensure_ascii=False, indent=1), encoding="utf-8")

@@ -64,6 +64,10 @@ class CocoLayout(Dataset):
         for a in data["annotations"]:
             anns.setdefault(a["image_id"], []).append(a)
         self.items = [(img, anns.get(img["id"], [])) for img in data["images"]][: limit or None]
+        # Třídy s ručními anotacemi (bez pseudo-popisků z původního modelu): podle nich
+        # se hodnotí a vybírá model; pseudo třídy jsou vzácné a jejich AP je šum.
+        self.annotated = sorted({a["category_id"] for _, items in self.items for a in items
+                                 if not a.get("pseudo")})
 
     def __len__(self) -> int:
         return len(self.items)
@@ -183,11 +187,16 @@ def loss_step(model, pixels, targets):
 
 
 @torch.no_grad()
-def evaluate(model, loader, device, num_classes: int) -> dict:
-    """mAP@0.5 a mAP@0.5:0.95 po třídách (torchmetrics)."""
+def evaluate(model, loader, device, num_classes: int, annotated: list[int] | None = None) -> dict:
+    """mAP@0.5:0.95 a AP@0.5 po třídách (torchmetrics).
+
+    `map_annotated` a `map50_annotated` jsou průměry přes třídy s ručními anotacemi
+    (`annotated`); podle `map50_annotated` se vybírá nejlepší model.
+    """
     from torchmetrics.detection import MeanAveragePrecision
 
     metric = MeanAveragePrecision(box_format="cxcywh", class_metrics=True)
+    metric50 = MeanAveragePrecision(box_format="cxcywh", class_metrics=True, iou_thresholds=[0.5])
     model.eval()
     for pixels, targets, _ in loader:
         out = model(pixel_values=pixels.to(device))
@@ -197,13 +206,26 @@ def evaluate(model, loader, device, num_classes: int) -> dict:
             scores, idx = p.flatten().topk(min(300, p.numel()))
             preds.append({"boxes": b[idx // num_classes].float().cpu(), "scores": scores.float().cpu(),
                           "labels": (idx % num_classes).cpu()})
-        metric.update(preds, [{"boxes": t["boxes"], "labels": t["class_labels"]} for t in targets])
+        gt = [{"boxes": t["boxes"], "labels": t["class_labels"]} for t in targets]
+        metric.update(preds, gt)
+        metric50.update(preds, gt)
     model.train()
-    res = metric.compute()
-    per_class = {}
-    if res["classes"].numel() and res["map_per_class"].numel() == res["classes"].numel():
-        per_class = {int(c): round(float(m), 4) for c, m in zip(res["classes"], res["map_per_class"])}
-    return {"map": round(float(res["map"]), 4), "map_50": round(float(res["map_50"]), 4), "per_class": per_class}
+
+    def per_class(res) -> dict[int, float]:
+        if res["classes"].numel() and res["map_per_class"].numel() == res["classes"].numel():
+            return {int(c): round(float(m), 4) for c, m in zip(res["classes"], res["map_per_class"])}
+        return {}
+
+    res, res50 = metric.compute(), metric50.compute()
+    pc, pc50 = per_class(res), per_class(res50)
+
+    def mean(values: dict[int, float]) -> float | None:
+        picked = [values[c] for c in (annotated or []) if values.get(c, -1) >= 0]
+        return round(sum(picked) / len(picked), 4) if picked else None
+
+    return {"map": round(float(res["map"]), 4), "map_50": round(float(res["map_50"]), 4),
+            "map_annotated": mean(pc), "map50_annotated": mean(pc50),
+            "per_class": pc, "per_class_ap50": pc50}
 
 
 def main() -> int:
@@ -255,9 +277,10 @@ def main() -> int:
 
     args.out.mkdir(parents=True, exist_ok=True)
     if args.eval_only:
-        metrics = evaluate(model, val_loader, device, model.config.num_labels)
+        metrics = evaluate(model, val_loader, device, model.config.num_labels, val.annotated)
         names = model.config.id2label
-        metrics["per_class"] = {names[k]: v for k, v in metrics["per_class"].items()}
+        for key in ("per_class", "per_class_ap50"):
+            metrics[key] = {names[k]: v for k, v in metrics[key].items()}
         print(json.dumps(metrics, ensure_ascii=False, indent=1))
         (args.out / "baseline.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
         return 0
@@ -287,21 +310,24 @@ def main() -> int:
                 break
         print(f"epoch {epoch} hotová za {time.time() - t0:.0f} s", flush=True)
         if (epoch + 1) % args.eval_every == 0 or epoch == args.epochs - 1 or args.max_steps:
-            metrics = evaluate(model, val_loader, device, model.config.num_labels)
+            metrics = evaluate(model, val_loader, device, model.config.num_labels, val.annotated)
             names = model.config.id2label
-            metrics["per_class"] = {names[k]: v for k, v in metrics["per_class"].items()}
-            print(f"val: mAP {metrics['map']}, mAP50 {metrics['map_50']}, "
-                  f"handwriting {metrics['per_class'].get('handwriting')}", flush=True)
+            for key in ("per_class", "per_class_ap50"):
+                metrics[key] = {names[k]: v for k, v in metrics[key].items()}
+            print(f"val: AP50 anotovaných tříd {metrics['map50_annotated']}, mAP anotovaných "
+                  f"{metrics['map_annotated']}, handwriting AP50 {metrics['per_class_ap50'].get('handwriting')}, "
+                  f"mAP všech {metrics['map']}", flush=True)
             log.write(json.dumps({"epoch": epoch, "val": metrics}) + "\n")
             log.flush()
-            if metrics["map"] > best:
-                best = metrics["map"]
+            score = metrics["map50_annotated"] if metrics["map50_annotated"] is not None else metrics["map"]
+            if score > best:
+                best = score
                 save_model(model, args.out / "best")
                 (args.out / "best" / "metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
         if args.max_steps and step >= args.max_steps:
             break
     save_model(model, args.out / "last")
-    print(f"hotovo, nejlepší mAP {best}", flush=True)
+    print(f"hotovo, nejlepší AP50 anotovaných tříd {best}", flush=True)
     return 0
 
 

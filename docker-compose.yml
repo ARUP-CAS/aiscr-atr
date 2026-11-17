@@ -28,6 +28,7 @@ services:
       ATR_CONFIG: /app/config/pipeline.yaml
       OCR_TEXT_URL: ${OCR_TEXT_URL:-http://ocr-text:8000/v1}
       OCR_ALT_URL: ${OCR_ALT_URL:-http://ocr-alt:8000/v1}
+      HANDWRITING_RECOGNIZER: ${HANDWRITING_RECOGNIZER:-paddle-text}
       ATR_MAX_UPLOAD_MB: ${ATR_MAX_UPLOAD_MB:-1024}
       ATR_MAX_CONCURRENT: ${ATR_MAX_CONCURRENT:-2}
     volumes:

@@ -96,9 +96,10 @@ recognizers:
     adapter: openai
     params: {url: ${OCR_TEXT_URL:-http://ocr-text:8000/v1}, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "Formula Recognition:",
              output_format: latex, licence: Apache-2.0}
-  # glm-text:
-  #   adapter: openai
-  #   params: {url: ${OCR_ALT_URL:-http://ocr-alt:8000/v1}, model: zai-org/GLM-OCR, prompt: "Text Recognition:", licence: MIT}
+  # Druhý model (profil compose `alt` nebo `vulkan-alt`); použije se jen tam, kam ho pošle `recognize`.
+  glm-text:
+    adapter: openai
+    params: {url: "${OCR_ALT_URL:-http://ocr-alt:8000/v1}", model: zai-org/GLM-OCR, prompt: "Text Recognition:", licence: MIT}
 
 # Typ bloku → rozpoznávač. Typ, který tu není (figure), se nerozpoznává
 # a ve výstupu je jen polohou.
@@ -111,7 +112,8 @@ recognize:
   page_header: paddle-text
   page_footer: paddle-text
   footnote: paddle-text
-  handwriting: paddle-text
+  # ruční písmo: na první zkoušce ho GLM-OCR četl lépe; zapne se HANDWRITING_RECOGNIZER=glm-text
+  handwriting: ${HANDWRITING_RECOGNIZER:-paddle-text}
   other: paddle-text
   table: paddle-table
   formula: paddle-formula
