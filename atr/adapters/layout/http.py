@@ -1,0 +1,94 @@
+"""Klient kontejneru s modelem rozvržení (protokol v docs/model-services.md)."""
+
+from __future__ import annotations
+
+import base64
+import time
+
+import httpx
+
+from atr.ports.errors import classify_http_error
+from atr.ports.types import (
+    BBox,
+    BlockType,
+    ComponentInfo,
+    LayoutBlock,
+    PageGeometry,
+    PageImage,
+)
+from atr.registry import register
+
+INFO_TTL_S = 60.0
+
+
+@register("layout", "http")
+class HttpLayoutDetector:
+    """Posílá obrázek strany na `POST {url}/predict`, dostává bloky v pixelech
+    obrázku a převádí je na body zobrazené strany. Třídy modelu mapuje na
+    `BlockType` podle `label_map` (výchozí mapa je u služby v `/info`)."""
+
+    def __init__(
+        self,
+        url: str,
+        label_map: dict[str, str] | None = None,
+        min_confidence: float = 0.3,
+        timeout_s: float = 60.0,
+    ) -> None:
+        self.url = url.rstrip("/")
+        self.label_map = {k: BlockType(v) for k, v in (label_map or {}).items()}
+        self.min_confidence = min_confidence
+        self.client = httpx.Client(timeout=timeout_s)
+        self._info: dict | None = None
+        self._info_at = 0.0
+
+    def detect(self, image: PageImage, geometry: PageGeometry) -> list[LayoutBlock]:
+        try:
+            resp = self.client.post(
+                f"{self.url}/predict",
+                json={"image_png_base64": base64.b64encode(image.png).decode("ascii")},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise classify_http_error("layout", self.url, exc) from exc
+        k = image.px_to_pt
+        blocks = []
+        for item in resp.json()["blocks"]:
+            if item["confidence"] < self.min_confidence:
+                continue
+            x0, y0, x1, y1 = item["bbox_px"]
+            label = item["label"]
+            # Obrázek je zaokrouhlený na celé pixely, takže blok u okraje může stranu
+            # o zlomek bodu přesáhnout: oříznout na stranu, zdegenerované vypustit.
+            bx0, by0 = max(0.0, x0 * k), max(0.0, y0 * k)
+            bx1, by1 = min(geometry.width, x1 * k), min(geometry.height, y1 * k)
+            if bx1 <= bx0 or by1 <= by0:
+                continue
+            blocks.append(
+                LayoutBlock(
+                    type=self.label_map.get(label, BlockType.OTHER),
+                    bbox=BBox(bx0, by0, bx1, by1),
+                    confidence=float(item["confidence"]),
+                    order=item.get("order"),
+                    source_label=label,
+                )
+            )
+        return blocks
+
+    def info(self) -> ComponentInfo:
+        # Popis modelu obnovovat: po výměně kontejneru rozvržení mají paradata hlásit nový model.
+        if self._info is None or time.monotonic() - self._info_at > INFO_TTL_S:
+            try:
+                resp = self.client.get(f"{self.url}/info", timeout=5.0)
+                resp.raise_for_status()
+                self._info = resp.json()
+                self._info_at = time.monotonic()
+            except (httpx.HTTPError, ValueError):
+                # Nedostupná služba nesmí shodit /info; zkusí se znovu příště.
+                return ComponentInfo("layout", "unreachable", "unknown", {"url": self.url})
+        return ComponentInfo(
+            "layout",
+            self._info.get("model", "unknown"),
+            self._info.get("version", "unknown"),
+            {"url": self.url, "min_confidence": self.min_confidence},
+            self._info.get("licence"),
+        )

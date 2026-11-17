@@ -1,0 +1,118 @@
+# Který adaptér je na kterém portu. Výměna modelu nebo knihovny = změna tady,
+# tok potrubí (atr/pipeline) se nemění.
+
+pipeline:
+  render_dpi: 200
+  max_page_pixels: 40000000   # velké formáty se vykreslí s nižším DPI
+  crop_padding_pt: 2
+  min_text_coverage: 0.6    # neúplná textová vrstva (méně textu než bloků) → strana na OCR
+  validate_output: true     # výstup ověřit schématem atr/schema/docproc.schema.json
+  mask_neighbours: true      # ve výřezu zabílit části sousedních bloků
+  recognize_concurrency: 4   # souběžné bloky jedné strany; llama.cpp: stejně jako --parallel
+
+ports:
+  page_source:
+    adapter: pdfium
+    params: {default_image_dpi: 300}   # DPI obrázku bez údaje v metadatech
+  renderer: {adapter: pdfium}
+  text_layer: {adapter: pdfium}
+
+  text_layer_judge:
+    adapter: rules
+    # starší OCR vrstva → ocr; vadný nebo nekvalitní text → garbled; obojí jde na OCR
+    params: {min_chars: 80, max_bad_char_ratio: 0.05, ocr_invisible_ratio: 0.8, ocr_image_coverage: 0.5,
+             max_mojibake_ratio: 0.02, max_single_letter_ratio: 0.35, max_long_word_ratio: 0.08,
+             max_implausible_ratio: 0.25, max_symbol_ratio: 0.2}
+
+  router: {adapter: rules}
+
+  layout:
+    adapter: http
+    params:
+      url: ${LAYOUT_URL:-http://layout:8000}
+      min_confidence: 0.3
+      # třída PP-DocLayoutV3 → typ bloku ve výstupu
+      # třída PP-DocLayoutV3 (viz GET /info služby layout) → typ bloku ve výstupu
+      label_map:
+        text: text
+        content: text
+        abstract: text
+        aside_text: text
+        algorithm: text
+        reference: text
+        reference_content: text
+        paragraph_title: heading
+        doc_title: title
+        figure_title: caption
+        header: page_header
+        footer: page_footer
+        number: page_footer
+        footnote: footnote
+        vision_footnote: footnote
+        table: table
+        image: figure
+        chart: figure
+        seal: figure
+        formula: formula
+        formula_number: formula
+        # názvy, které má až dotrénovaný model (původní model je slučuje)
+        header_image: figure
+        footer_image: figure
+        display_formula: formula
+        inline_formula: formula
+        vertical_text: text
+        handwriting: handwriting
+
+  # obecné vyřešení překryvů mezi bloky (bez pravidel pro konkrétní dokumenty)
+  layout_refiner:
+    adapter: overlaps
+    params: {contained: 0.85, merge: 0.25}
+
+  # pořadí čtení: model (z PP-DocLayoutV3) | xycut
+  reading_order: {adapter: model}
+
+  text_assigner:
+    adapter: overlap
+    params: {min_overlap: 0.5}
+
+  assembler: {adapter: docproc}
+
+  # jazyk bloků a dokumentu (lingua-py, Apache-2.0, offline)
+  language:
+    adapter: lingua
+    params: {languages: [cs, sk, de, en, la, pl, fr], min_confidence: 0.5}
+
+
+# Rozpoznávače bloků. Jeden rozpoznávač = jeden model a jedna úloha.
+recognizers:
+  paddle-text:
+    adapter: openai
+    params: {url: ${OCR_TEXT_URL:-http://ocr-text:8000/v1}, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "OCR:", licence: Apache-2.0}
+  paddle-table:
+    adapter: openai
+    params: {url: ${OCR_TEXT_URL:-http://ocr-text:8000/v1}, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "Table Recognition:",
+             output_format: html, licence: Apache-2.0}
+  paddle-formula:
+    adapter: openai
+    params: {url: ${OCR_TEXT_URL:-http://ocr-text:8000/v1}, model: PaddlePaddle/PaddleOCR-VL-1.6, prompt: "Formula Recognition:",
+             output_format: latex, licence: Apache-2.0}
+  # Druhý model (profil compose `alt` nebo `vulkan-alt`); použije se jen tam, kam ho pošle `recognize`.
+  glm-text:
+    adapter: openai
+    params: {url: "${OCR_ALT_URL:-http://ocr-alt:8000/v1}", model: zai-org/GLM-OCR, prompt: "Text Recognition:", licence: MIT}
+
+# Typ bloku → rozpoznávač. Typ, který tu není, se nerozpoznává a ve výstupu je jen
+# polohou a typem: obrázky (figure) a ruční písmo (handwriting). Ruční písmo zatím
+# žádný model nečte spolehlivě, proto se jen označuje; až bude čím, stačí sem přidat řádek.
+recognize:
+  text: paddle-text
+  title: paddle-text
+  heading: paddle-text
+  list_item: paddle-text
+  caption: paddle-text
+  page_header: paddle-text
+  page_footer: paddle-text
+  footnote: paddle-text
+  other: paddle-text
+  table: paddle-table
+  formula: paddle-formula

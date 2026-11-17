@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ARUP-CAS/aiscr-docs-pipeline/schema/docproc/0.1.0-draft",
+  "title": "atr/docproc-json",
+  "description": "NÁVRH datového kontraktu úrovně rozvržení (aiscr-docs-pipeline#17) podle výstupu otevřené služby ATR. Normativní verze bude v aiscr-docs-pipeline. Souřadnice: body (1/72 palce × UserUnit) na zobrazené straně (CropBox po /Rotate), počátek vlevo nahoře.",
+  "type": "object",
+  "required": ["version", "pageCount", "metadata", "pages"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {"type": "string", "description": "verze kontraktu"},
+    "pageCount": {"type": "integer", "minimum": 0, "description": "počet stran originálu"},
+    "documentLanguage": {"$ref": "#/$defs/language"},
+    "metadata": {
+      "type": "object",
+      "required": ["routing"],
+      "additionalProperties": false,
+      "properties": {
+        "routing": {
+          "type": "object",
+          "required": ["pages"],
+          "additionalProperties": false,
+          "properties": {
+            "pages": {
+              "type": "array",
+              "description": "každá strana originálu právě jednou, včetně prázdných",
+              "items": {"$ref": "#/$defs/route"}
+            }
+          }
+        }
+      }
+    },
+    "pages": {
+      "type": "array",
+      "description": "strany s obsahem; prázdná strana je jen v routing",
+      "items": {"$ref": "#/$defs/page"}
+    }
+  },
+  "$defs": {
+    "language": {"type": "string", "pattern": "^[a-z]{2}$", "description": "ISO 639-1"},
+    "bbox": {
+      "type": "array",
+      "description": "[x0, y0, x1, y1] v bodech, počátek vlevo nahoře",
+      "items": {"type": "number", "minimum": 0},
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "route": {
+      "type": "object",
+      "required": ["page", "route", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "page": {"type": "integer", "minimum": 1},
+        "route": {"enum": ["digital", "ocr", "forced", "empty"]},
+        "reason": {"type": "string"},
+        "forced_reason": {"type": "string"},
+        "text_layer": {"enum": ["digital", "garbled", "ocr", "none", "blank"],
+                       "description": "verdikt textové vrstvy"},
+        "label": {"type": "string", "description": "kategorie z klasifikace stran (vodítko)"},
+        "label_confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "allOf": [{"if": {"properties": {"route": {"const": "forced"}}}, "then": {"required": ["forced_reason"]}}]
+    },
+    "page": {
+      "type": "object",
+      "required": ["pageNumber", "width", "height", "rotation", "coordinateUnit", "blocks"],
+      "additionalProperties": false,
+      "properties": {
+        "pageNumber": {"type": "integer", "minimum": 1},
+        "width": {"type": "number", "exclusiveMinimum": 0},
+        "height": {"type": "number", "exclusiveMinimum": 0},
+        "rotation": {"enum": [0, 90, 180, 270]},
+        "coordinateUnit": {"const": "pt"},
+        "sourcePixels": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 2,
+                         "description": "rozměr originálu v pixelech, je-li vstupem obrázek"},
+        "language": {"$ref": "#/$defs/language"},
+        "blocks": {"type": "array", "items": {"$ref": "#/$defs/block"}}
+      }
+    },
+    "block": {
+      "type": "object",
+      "required": ["type", "bbox", "confidence", "readingOrder", "content", "contentFormat"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"enum": ["text", "title", "heading", "list_item", "table", "figure", "caption", "formula",
+                          "page_header", "page_footer", "footnote", "handwriting", "other"]},
+        "bbox": {"$ref": "#/$defs/bbox"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "readingOrder": {"type": "integer", "minimum": 0},
+        "content": {"type": "string"},
+        "contentFormat": {"enum": ["text", "html", "markdown", "latex"]},
+        "language": {"$ref": "#/$defs/language"},
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["text", "bbox", "position"],
+            "additionalProperties": false,
+            "properties": {
+              "text": {"type": "string"},
+              "bbox": {"oneOf": [{"$ref": "#/$defs/bbox"}, {"type": "null"}]},
+              "position": {"enum": ["measured", "derived", "absent"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

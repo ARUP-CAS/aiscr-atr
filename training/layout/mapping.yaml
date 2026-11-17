@@ -1,0 +1,111 @@
+# Mapa zón SegmOnto (LADaS, anotace AMČR v eScriptoriu) → třídy PP-DocLayoutV3 + handwriting.
+#
+# Cílový slovník je slovník PP-DocLayoutV3 (25 tříd, pořadí jako v PaddleX), na konec
+# je přidaná třída `handwriting` (ručně psané doplňky a poznámky).
+#
+# Hodnoty:
+#   <třída>        oblast se převede na tuto třídu
+#   drop           oblast se vypustí (není obsah strany, nebo leží uvnitř jiné oblasti)
+#   rule:<jméno>   třída se určí pravidlem v build_dataset.py (popsáno u pravidla)
+#
+# Rozhodnutí k revizi jsou označená „REVIZE“.
+
+classes:
+  - abstract
+  - algorithm
+  - aside_text
+  - chart
+  - content
+  - display_formula
+  - doc_title
+  - figure_title
+  - footer
+  - footer_image
+  - footnote
+  - formula_number
+  - header
+  - header_image
+  - image
+  - inline_formula
+  - number
+  - paragraph_title
+  - reference
+  - reference_content
+  - seal
+  - table
+  - text
+  - vertical_text
+  - vision_footnote
+  - handwriting          # nová třída
+
+zones:
+  # --- hlavní text ---
+  MainZone-P: text
+  MainZone-P-Continued: text
+  MainZone-PStructured: text
+  MainZone-PStyled: text
+  MainZone-Entry: text            # položka katalogu
+  MainZone-Entry-Continued: text
+  MainZone-Sp: text               # replika v divadelní hře
+  MainZone-Sp-Continued: text
+  MainZone-Lg: text               # verš
+  MainZone-Lg-Continued: text
+  MainZone-List: text
+  MainZone-List-Continued: text
+  MainZone-Item: text
+  MainZone-Other: text
+  MainZone-Ab: text               # REVIZE: odstavec bez typu v anotacích AMČR
+  MainZone-Address: text
+  MainZone-Signed: text
+  MainZone-Signature: text
+  MainZone-Dateline: text
+  MainZone-Date: text
+  MainZone-Head: paragraph_title
+  MainZone-HeadStructured: paragraph_title
+  TitlePageZone: doc_title        # REVIZE: celá titulní strana; V3 zná jen nadpis dokumentu
+  TitlePageZone-Index: text
+
+  # --- záhlaví, zápatí, číslování ---
+  RunningTitleZone: header
+  NumberingZone: number
+  QuireMarksZone: footer          # archová signatura dole na straně
+
+  # --- okraje a rukopis ---
+  MarginTextZone-Notes: rule:notes          # dole přes šířku strany → footnote, jinak aside_text
+  MarginTextZone-Notes-Continued: rule:notes
+  MarginTextZone-PStructured: aside_text
+  MarginTextZone-PStyled: aside_text
+  MarginTextZone-Ab: aside_text
+  MarginTextZone-ManuscriptAddendum: handwriting
+
+  # --- obrázky, tabulky, vzorce, razítka ---
+  GraphicZone: image
+  GraphicZone-Decoration: image
+  GraphicZone-Part: image
+  FigureZone: image
+  AdvertisementZone: image
+  GraphicZone-Head: figure_title
+  GraphicZone-FigDesc: figure_title
+  FigureZone-Head: figure_title
+  FigureZone-FigDesc: figure_title
+  GraphicZone-TextualContent: drop          # text uvnitř obrázku, čte se s obrázkem
+  GraphicZone-Maths: display_formula
+  TableZone: table
+  TableZone-Continued: table
+  TableZone-Head: figure_title              # titulek tabulky
+  StampZone: seal
+  StampZone-Sticker: seal
+
+  # --- formuláře (V3 nemá třídu formuláře; model je dnes čte jako tabulku) ---
+  MainZone-Form: table                      # REVIZE
+  FormZone: table                           # REVIZE
+  FormZone-Head: drop                       # leží uvnitř FormZone
+  FormZone-Part: drop
+  FormZone-Field: drop
+
+  # --- neobsah ---
+  DropCapitalZone: drop                     # iniciála je součást odstavce
+  DigitizationArtefactZone: drop            # prsty, pravítka, okraje skenu
+  DamageZone: drop
+  Undefined: drop
+  Orphan: drop
