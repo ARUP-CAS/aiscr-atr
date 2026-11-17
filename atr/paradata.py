@@ -35,9 +35,10 @@ def build(result: DocumentResult, output: dict) -> dict:
         routes[page.decision.route.value] = routes.get(page.decision.route.value, 0) + 1
 
     instruments = []
-    for c in result.components:
+    for n, c in enumerate(result.components):
         entry = {
-            "@id": f"#component-{c.port}-{c.name}",
+            # pořadové číslo drží @id jedinečné i pro více rozpoznávačů nad stejným modelem
+            "@id": f"#component-{n:02d}-{c.port}",
             "@type": "SoftwareApplication",
             "name": c.name,
             "softwareVersion": c.version,

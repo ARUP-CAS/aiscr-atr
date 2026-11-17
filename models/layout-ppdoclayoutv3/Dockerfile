@@ -21,7 +21,7 @@ snapshot_download('${MODEL_ID}', revision='${MODEL_REVISION}')"
 ENV HF_HUB_OFFLINE=1
 
 WORKDIR /app
-COPY server.py .
+COPY common.py server.py ./
 RUN useradd --uid 1000 --create-home layout && chmod -R a+rX /opt/hf
 USER layout
 EXPOSE 8000

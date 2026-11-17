@@ -10,7 +10,7 @@ Kontroly jsou obecné, nezávislé na typu dokumentu, a jdou v tomto pořadí:
 4. **chybné kódování** (mojibake, např. „Å¾“ místo „ž“) → `garbled`;
 5. **rozpadlá slova**: text rozsekaný na jednotlivá písmena („N á l e z“) → `garbled`;
 6. **slepená slova**: chybí mezery, slova jsou nepřirozeně dlouhá → `garbled`;
-7. **nesmyslná slova**: velký podíl „slov“ bez samohlásky (r a l se počítají, kvůli
+7. **nesmyslná slova** (jen latinka): velký podíl „slov“ bez samohlásky (r a l se počítají, kvůli
    „vlk“, „prst“) nebo s nesmyslnými znaky uprostřed → `garbled`;
 8. **příliš mnoho symbolů** proti písmenům a číslicím → `garbled`;
 9. jinak `digital`.
@@ -66,9 +66,6 @@ class RulesTextLayerJudge:
         long_word_len: int = 25,
         max_implausible_ratio: float = 0.25,
         max_symbol_ratio: float = 0.2,
-        # Starší prahy zůstávají kvůli zpětné kompatibilitě konfigurace, nepoužívají se.
-        min_alnum_ratio: float | None = None,
-        min_word_len_mean: float | None = None,
     ) -> None:
         self.params = {
             "min_chars": min_chars,
@@ -127,8 +124,10 @@ class RulesTextLayerJudge:
         if long_words > p["max_long_word_ratio"]:
             return TextLayerJudgement(TextLayerVerdict.GARBLED, f"long_word_ratio={long_words:.2f}", 1 - long_words)
 
+        # Věrohodnost slov umíme posoudit jen u latinky; jiná písma (azbuka, řečtina)
+        # se nehodnotí, aby čistý text nešel zbytečně na OCR.
         candidates = [w.lower() for w in words if len(w) >= 3 and any(ch.isalpha() for ch in w)
-                      and not any(ch.isdigit() for ch in w)]
+                      and not any(ch.isdigit() for ch in w) and _latin(w)]
         if candidates:
             implausible = sum(_implausible(w) for w in candidates) / len(candidates)
             if implausible > p["max_implausible_ratio"]:
@@ -144,6 +143,11 @@ class RulesTextLayerJudge:
 
     def info(self) -> ComponentInfo:
         return ComponentInfo("text_layer_judge", "rules", __version__, dict(self.params))
+
+
+def _latin(word: str) -> bool:
+    """Všechna písmena slova jsou latinka."""
+    return all("LATIN" in unicodedata.name(ch, "") for ch in word if ch.isalpha())
 
 
 def _implausible(word: str) -> bool:

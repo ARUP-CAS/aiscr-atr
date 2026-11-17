@@ -9,11 +9,20 @@ from PIL import Image
 from atr.ports.types import BBox, PageImage
 
 
-def crop(image: PageImage, bbox: BBox, padding_pt: float = 0.0, mask: list[BBox] | None = None) -> PageImage:
+def decode(image: PageImage) -> Image.Image:
+    """Dekóduje PNG strany jednou; výsledek jde předat `crop` pro všechny bloky strany."""
+    img = Image.open(io.BytesIO(image.png))
+    img.load()
+    return img
+
+
+def crop(image: PageImage, bbox: BBox, padding_pt: float = 0.0, mask: list[BBox] | None = None,
+         decoded: Image.Image | None = None) -> PageImage:
     """Výřez bloku (bbox v bodech) z vykreslené strany jako nový PageImage.
 
     `mask`: obdélníky sousedních bloků; jejich části mimo vlastní blok se ve
     výřezu zabílí, aby model nečetl kusy sousedního textu z okraje výřezu.
+    `decoded`: už dekódovaná strana (`decode`), aby se PNG nečetlo pro každý blok znovu.
     """
     scale = image.dpi / 72.0
     x0 = max(0, int((bbox.x0 - padding_pt) * scale))
@@ -22,12 +31,11 @@ def crop(image: PageImage, bbox: BBox, padding_pt: float = 0.0, mask: list[BBox]
     y1 = min(image.height_px, round((bbox.y1 + padding_pt) * scale))
     if x1 <= x0 or y1 <= y0:
         raise ValueError(f"prázdný výřez pro {bbox} na straně {image.page}")
-    with Image.open(io.BytesIO(image.png)) as img:
-        part = img.crop((x0, y0, x1, y1))
-        if mask:
-            part = _mask(part, image.dpi / 72.0, (x0, y0), bbox, mask)
-        buf = io.BytesIO()
-        part.save(buf, format="PNG")
+    part = (decoded if decoded is not None else decode(image)).crop((x0, y0, x1, y1))
+    if mask:
+        part = _mask(part, image.dpi / 72.0, (x0, y0), bbox, mask)
+    buf = io.BytesIO()
+    part.save(buf, format="PNG")
     return PageImage(page=image.page, dpi=image.dpi, width_px=x1 - x0, height_px=y1 - y0, png=buf.getvalue())
 
 

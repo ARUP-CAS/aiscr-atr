@@ -64,8 +64,10 @@ def predict(client: httpx.Client, url: str, path: Path) -> list[dict]:
 def order_annotations(anns: list[dict], preds: list[dict], width: int, height: int, min_iou: float) -> None:
     """Doplní ann['read_order'] (0..n-1)."""
     geometry = PageGeometry(1, width, height, 0)
-    blocks = [LayoutBlock(BlockType.TEXT, BBox(*xyxy(a["bbox"])), 1.0, i) for i, a in enumerate(anns)]
-    geo = [b.order for b in XYCutReadingOrder(sections=False).order(blocks, geometry)]
+    # Index anotace nese source_label: `order()` pole order přečísluje na 0..n-1.
+    blocks = [LayoutBlock(BlockType.TEXT, BBox(*xyxy(a["bbox"])), 1.0, source_label=str(i))
+              for i, a in enumerate(anns)]
+    geo = [int(b.source_label) for b in XYCutReadingOrder(sections=False).order(blocks, geometry)]
     # geo[k] = index anotace na k-tém místě podle XY-cut
     matched: dict[int, float] = {}
     for i, a in enumerate(anns):

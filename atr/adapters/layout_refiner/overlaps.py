@@ -8,8 +8,8 @@ Nic specifického pro typ dokumentu, jen geometrie:
 2. Výrazný překryv dvou bloků stejného typu (překryv ≥ `merge` výšky, resp.
    šířky menšího z nich): bloky se sloučí do jednoho. Typicky dva řádkové
    bloky, které model posadil přes sebe; řez by přesekl písmena.
-3. Malý překryv: společný pás se rozdělí napůl po té ose, kde je překryv
-   menší. Výřez jednoho bloku pak nezasahuje do sousedního.
+3. Tenký překryv bloků navazujících hranou: společný pás se rozdělí napůl.
+   Hlubší překryv různých typů (poznámka přes odstavec) se ponechá.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ class OverlapRefiner:
         for a in range(len(kept)):
             for b in range(a + 1, len(kept)):
                 i, j = kept[a], kept[b]
-                boxes[i], boxes[j] = _split(boxes[i], boxes[j])
+                boxes[i], boxes[j] = _split(boxes[i], boxes[j], self.merge)
 
         # Výsledek v původním pořadí; pořadí čtení řeší jiná komponenta.
         out = []
@@ -96,20 +96,35 @@ def _union(a: BBox, b: BBox) -> BBox:
     return BBox(min(a.x0, b.x0), min(a.y0, b.y0), max(a.x1, b.x1), max(a.y1, b.y1))
 
 
-def _split(a: BBox, b: BBox) -> tuple[BBox, BBox]:
+def _split(a: BBox, b: BBox, max_ratio: float = 0.25) -> tuple[BBox, BBox]:
+    """Rozdělí napůl tenký překryv dvou bloků, které na sebe navazují hranou.
+
+    Řeže se jen po ose, na které jsou bloky posunuté (jeden začíná i končí dřív než
+    druhý) a kde je překryv tenký proti oběma blokům (< `max_ratio` jejich rozměru).
+    Když jeden blok zasahuje hluboko do druhého (např. ruční poznámka přes odstavec),
+    řez by ukrojil kus většího bloku, proto se takový překryv ponechá; o čistý
+    výřez se postará zabílení sousedů při rozpoznávání.
+    """
     ow = min(a.x1, b.x1) - max(a.x0, b.x0)
     oh = min(a.y1, b.y1) - max(a.y0, b.y0)
     if ow <= 0 or oh <= 0:
         return a, b
-    # Řez vedeme přes menší z obou rozměrů překryvu.
-    if oh <= ow:
-        upper, lower = (a, b) if (a.y0 + a.y1) <= (b.y0 + b.y1) else (b, a)
-        cut = (max(a.y0, b.y0) + min(a.y1, b.y1)) / 2
-        new_upper = BBox(upper.x0, upper.y0, upper.x1, max(upper.y0, min(upper.y1, cut)))
-        new_lower = BBox(lower.x0, min(lower.y1, max(lower.y0, cut)), lower.x1, lower.y1)
+
+    def staggered(lo1: float, hi1: float, lo2: float, hi2: float) -> bool:
+        return (lo1 < lo2 and hi1 < hi2) or (lo2 < lo1 and hi2 < hi1)
+
+    cut_y = staggered(a.y0, a.y1, b.y0, b.y1) and oh < max_ratio * min(a.height, b.height)
+    cut_x = staggered(a.x0, a.x1, b.x0, b.x1) and ow < max_ratio * min(a.width, b.width)
+    if cut_y and (not cut_x or oh <= ow):
+        upper, lower = (a, b) if a.y0 < b.y0 else (b, a)
+        cut = (lower.y0 + upper.y1) / 2
+        new_upper = BBox(upper.x0, upper.y0, upper.x1, cut)
+        new_lower = BBox(lower.x0, cut, lower.x1, lower.y1)
         return (new_upper, new_lower) if upper is a else (new_lower, new_upper)
-    left, right = (a, b) if (a.x0 + a.x1) <= (b.x0 + b.x1) else (b, a)
-    cut = (max(a.x0, b.x0) + min(a.x1, b.x1)) / 2
-    new_left = BBox(left.x0, left.y0, max(left.x0, min(left.x1, cut)), left.y1)
-    new_right = BBox(min(right.x1, max(right.x0, cut)), right.y0, right.x1, right.y1)
-    return (new_left, new_right) if left is a else (new_right, new_left)
+    if cut_x:
+        left, right = (a, b) if a.x0 < b.x0 else (b, a)
+        cut = (right.x0 + left.x1) / 2
+        new_left = BBox(left.x0, left.y0, cut, left.y1)
+        new_right = BBox(cut, right.y0, right.x1, right.y1)
+        return (new_left, new_right) if left is a else (new_right, new_left)
+    return a, b

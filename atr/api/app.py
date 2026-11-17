@@ -5,11 +5,13 @@ Chybový model jako ostatní služby ATRIUM: {"status", "reason", "detail"}.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from functools import lru_cache
 
 from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
 from atr import __version__, config, registry
@@ -25,12 +27,36 @@ app = FastAPI(
     description=(
         "Otevřená služba ATR: z dokumentu (PDF, sken, obrázek) vytvoří `atr/docproc-json` "
         "(rozvržení, bloky s typem, polohou, pořadím čtení a textem; routing každé strany). "
-        "Chyby mají tvar `{status, reason, detail}`: 400 neplatný požadavek, 422 nečitelný vstup "
-        "nebo selhání rozpoznání (`all_engines_failed`), 503 nedostupná služba modelu (zopakovat), "
-        "500 neplatný výstup."
+        "Chyby mají tvar `{status, reason, detail}`: 400 neplatný požadavek, 413 příliš velký soubor, "
+        "422 nečitelný vstup nebo trvalé selhání zpracování (`all_engines_failed`, `layout_rejected`; "
+        "opakování nepomůže), 503 dočasně nedostupná služba modelu (zopakovat), 500 neplatný výstup."
     ),
     license_info={"name": "MIT"},
 )
+
+
+MAX_UPLOAD_MB = int(os.environ.get("ATR_MAX_UPLOAD_MB", "1024"))
+MAX_CONCURRENT = int(os.environ.get("ATR_MAX_CONCURRENT", "2"))
+_semaphore: asyncio.Semaphore | None = None
+
+
+def _slots() -> asyncio.Semaphore:
+    global _semaphore
+    if _semaphore is None:  # vytvořit až v běžící smyčce událostí
+        _semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    return _semaphore
+
+
+async def _read_limited(file: UploadFile) -> bytes | None:
+    """Přečte nahraný soubor po částech; None, když překročí ATR_MAX_UPLOAD_MB."""
+    limit = MAX_UPLOAD_MB * 1024 * 1024
+    chunks, size = [], 0
+    while chunk := await file.read(1024 * 1024):
+        size += len(chunk)
+        if size > limit:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @lru_cache(maxsize=1)
@@ -75,15 +101,21 @@ async def convert(
     except (ValueError, AttributeError) as exc:
         return _error(400, "invalid_forced_pages", str(exc))
 
+    data = await _read_limited(file)
+    if data is None:
+        return _error(413, "payload_too_large", f"soubor je větší než {MAX_UPLOAD_MB} MB")
     document = DocumentInput(
-        data=await file.read(),
+        data=data,
         filename=file.filename or "document",
         mime_type=file.content_type,
         sha512=sha512,
         forced_pages=forced,
     )
     try:
-        output, para = get_pipeline().run_with_paradata(document)
+        # Potrubí je synchronní (PDFium, blokující HTTP): běží ve vlákně, aby služba
+        # dál odpovídala na /health a /info. Souběžné převody omezuje semafor.
+        async with _slots():
+            output, para = await run_in_threadpool(get_pipeline().run_with_paradata, document)
         if paradata:
             # docproc jako kanonické bajty, aby seděl otisk SHA-512 v paradatech
             body = b'{"docproc":' + canonical_json(output) + b',"paradata":' + canonical_json(para) + b"}"

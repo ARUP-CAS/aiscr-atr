@@ -56,11 +56,11 @@ class PdfiumRenderer:
 
 
 def _render_image(doc: ImageDocument, page: int, dpi: float) -> Image.Image:
-    frame, source_dpi = doc.frames[page - 1]
+    frame, dpi_x, dpi_y = doc.frames[page - 1]
     img = frame.convert("RGB") if frame.mode not in ("RGB", "L") else frame
-    scale = dpi / source_dpi
-    if abs(scale - 1.0) > 1e-3:
-        size = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
+    sx, sy = dpi / dpi_x, dpi / dpi_y  # různé DPI v osách se tím srovná na čtvercové pixely
+    if abs(sx - 1.0) > 1e-3 or abs(sy - 1.0) > 1e-3:
+        size = (max(1, round(img.width * sx)), max(1, round(img.height * sy)))
         img = img.resize(size, Image.Resampling.LANCZOS)
     return img
 
@@ -91,6 +91,7 @@ class PdfiumTextLayerReader:
         chars: list[tuple[str, BBox]] = []
         unmapped = 0
         invisible = 0
+        page_w, page_h = p.width_raw * p.user_unit, p.height_raw * p.user_unit
         render_mode: dict[int, int] = {}  # adresa textového objektu → režim vykreslení
 
         def flush_word() -> None:
@@ -132,7 +133,14 @@ class PdfiumTextLayerReader:
             left, bottom, right, top = textpage.get_charbox(i, loose=True)
             corners = [p.to_display(left, bottom), p.to_display(right, top)]
             xs, ys = [c[0] for c in corners], [c[1] for c in corners]
-            chars.append((ch, BBox(min(xs), min(ys), max(xs), max(ys))))
+            # Text mimo zobrazenou stranu (za hranicí CropBox) do výstupu nepatří;
+            # znak přesahující okraj se ořízne na stranu.
+            x0, x1 = max(0.0, min(xs)), min(page_w, max(xs))
+            y0, y1 = max(0.0, min(ys)), min(page_h, max(ys))
+            if x1 <= x0 or y1 <= y0:
+                flush_word()
+                continue
+            chars.append((ch, BBox(x0, y0, x1, y1)))
         flush_line()
         return TextLayer(page, tuple(lines), unmapped, invisible, _image_coverage(p))
 

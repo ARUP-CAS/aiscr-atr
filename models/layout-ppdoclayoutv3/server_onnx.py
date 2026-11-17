@@ -6,17 +6,15 @@ odpovídá PPDocLayoutV3ImageProcessor.post_process_object_detection (bez polygo
 
 from __future__ import annotations
 
-import base64
-import io
 import json
 import os
 import threading
 
 import numpy as np
 import onnxruntime as ort
+from common import PredictRequest, decode_image, dedupe
 from fastapi import FastAPI, HTTPException
-from PIL import Image, UnidentifiedImageError
-from pydantic import BaseModel
+from PIL import Image
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "/opt/model/model.onnx")
 THRESHOLD = float(os.environ.get("THRESHOLD", "0.3"))
@@ -40,10 +38,6 @@ def startup() -> None:
     meta_path = os.path.splitext(MODEL_PATH)[0] + ".json"
     with open(meta_path, encoding="utf-8") as fh:
         _state["meta"] = json.load(fh)
-
-
-class PredictRequest(BaseModel):
-    image_png_base64: str
 
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
@@ -74,28 +68,6 @@ def postprocess(logits, boxes, order_logits, width: int, height: int, threshold:
     return [{"label": int(label[i]), "score": float(scores[keep[i]]), "box": xyxy[i].tolist()} for i in order]
 
 
-def _iou(a, b) -> float:
-    w = min(a[2], b[2]) - max(a[0], b[0])
-    h = min(a[3], b[3]) - max(a[1], b[1])
-    if w <= 0 or h <= 0:
-        return 0.0
-    inter = w * h
-    return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter)
-
-
-def _dedupe(blocks: list[dict]) -> list[dict]:
-    keep: list[dict] = []
-    for block in blocks:
-        twin = next((k for k in keep if _iou(k["bbox_px"], block["bbox_px"]) >= DEDUPE_IOU), None)
-        if twin is None:
-            keep.append(block)
-        elif block["confidence"] > twin["confidence"]:
-            keep[keep.index(twin)] = {**block, "order": twin["order"]}
-    for i, block in enumerate(keep):
-        block["order"] = i
-    return keep
-
-
 @app.get("/health")
 def health() -> dict:
     if "session" not in _state:
@@ -118,13 +90,7 @@ def info() -> dict:
 
 @app.post("/predict")
 def predict(req: PredictRequest) -> dict:
-    try:
-        image = Image.open(io.BytesIO(base64.b64decode(req.image_png_base64)))
-        if image.width * image.height > MAX_PIXELS:
-            raise HTTPException(413, f"obrázek má víc než {MAX_PIXELS} pixelů")
-        image = image.convert("RGB")
-    except (UnidentifiedImageError, ValueError) as exc:
-        raise HTTPException(400, f"neplatný obrázek: {exc}") from exc
+    image = decode_image(req, MAX_PIXELS)
 
     size = _state["meta"]["size"]
     pixels = np.asarray(image.resize((size, size), Image.Resampling.BICUBIC), dtype=np.float32)
@@ -143,4 +109,4 @@ def predict(req: PredictRequest) -> dict:
             "order": i,
             "polygon_px": None,
         })
-    return {"width_px": image.width, "height_px": image.height, "blocks": _dedupe(blocks)}
+    return {"width_px": image.width, "height_px": image.height, "blocks": dedupe(blocks, DEDUPE_IOU)}

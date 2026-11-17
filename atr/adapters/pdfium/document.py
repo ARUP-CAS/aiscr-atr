@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
-from PIL import Image, ImageSequence, UnidentifiedImageError
+from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 
 from atr.ports.errors import InputError
 from atr.ports.types import DocumentInput, PageGeometry
@@ -86,19 +86,24 @@ class ImageDocument:
     def __init__(self, data: bytes, default_dpi: float) -> None:
         try:
             img = Image.open(io.BytesIO(data))
-            frames = [f.copy() for f in ImageSequence.Iterator(img)]
-        except (UnidentifiedImageError, OSError) as exc:
+            # Orientaci z EXIF (fotky z telefonu) uplatnit hned: strana pak odpovídá tomu,
+            # co ukazují prohlížeče, a všechny souřadnice jsou v tomto rámu.
+            frames = [ImageOps.exif_transpose(f.copy()) for f in ImageSequence.Iterator(img)]
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
             raise InputError("unsupported_format", f"soubor není PDF ani čitelný obrázek: {exc}") from exc
-        self.frames: list[tuple[Image.Image, float]] = []
+        # snímek, vodorovné a svislé DPI (fax a některé skenery je mají různé)
+        self.frames: list[tuple[Image.Image, float, float]] = []
         self.pages: list[PageGeometry] = []
         for i, frame in enumerate(frames):
-            dpi = _image_dpi(frame, img, default_dpi)
-            self.frames.append((frame, dpi))
+            dpi_x, dpi_y = _image_dpi(frame, img, default_dpi)
+            if frame.size != img.size and frame.size == img.size[::-1]:
+                dpi_x, dpi_y = dpi_y, dpi_x  # snímek otočený podle EXIF o 90°
+            self.frames.append((frame, dpi_x, dpi_y))
             w, h = frame.size
-            self.pages.append(PageGeometry(i + 1, w * 72 / dpi, h * 72 / dpi, 0, 1.0, (w, h)))
+            self.pages.append(PageGeometry(i + 1, w * 72 / dpi_x, h * 72 / dpi_y, 0, 1.0, (w, h)))
 
     def close(self) -> None:
-        for frame, _ in self.frames:
+        for frame, _, _ in self.frames:
             frame.close()
 
 
@@ -109,14 +114,21 @@ def open_document(document: DocumentInput, default_image_dpi: float) -> PdfDocum
     return ImageDocument(document.data, default_image_dpi)
 
 
-def _image_dpi(frame: Image.Image, img: Image.Image, default: float) -> float:
+def _image_dpi(frame: Image.Image, img: Image.Image, default: float) -> tuple[float, float]:
+    """Vodorovné a svislé DPI z metadat; bez věrohodného údaje `default` pro obě osy."""
     dpi = frame.info.get("dpi") or img.info.get("dpi")
     try:
-        value = float(dpi[0] if isinstance(dpi, (tuple, list)) else dpi)
-    except (TypeError, ValueError):
-        return default
-    # Mnoho souborů nese 72 nebo 1 jako „nevím“; skeny mají aspoň 100.
-    return value if value >= 100 else default
+        if isinstance(dpi, (tuple, list)):
+            x, y = float(dpi[0]), float(dpi[1] if len(dpi) > 1 else dpi[0])
+        else:
+            x = y = float(dpi)
+    except (TypeError, ValueError, IndexError):
+        return default, default
+    # Mnoho souborů nese 72 nebo 1 jako „nevím“; skeny mají aspoň 100 v delší ose
+    # (fax 204 × 98 je platný údaj).
+    if max(x, y) < 100 or min(x, y) <= 0:
+        return default, default
+    return x, y
 
 
 def _user_units(data: bytes, count: int) -> list[float]:
@@ -125,11 +137,13 @@ def _user_units(data: bytes, count: int) -> list[float]:
         return [1.0] * count
     from pypdf import PdfReader
 
-    reader = PdfReader(io.BytesIO(data))
     out = []
-    for page in reader.pages:
-        try:
-            out.append(float(page.get("/UserUnit", 1.0)))
-        except (TypeError, ValueError):
-            out.append(1.0)
+    try:
+        for page in PdfReader(io.BytesIO(data)).pages:
+            try:
+                out.append(float(page.get("/UserUnit", 1.0)))
+            except (TypeError, ValueError):
+                out.append(1.0)
+    except Exception:  # noqa: BLE001 - PDF, které pypdf nepřečte, ale PDFium ano: bez UserUnit
+        return [1.0] * count
     return out if len(out) == count else [1.0] * count

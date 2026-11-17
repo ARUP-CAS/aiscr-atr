@@ -6,7 +6,7 @@ import base64
 
 import httpx
 
-from atr.ports.errors import DependencyError
+from atr.ports.errors import classify_http_error
 from atr.ports.types import (
     BBox,
     BlockType,
@@ -45,7 +45,7 @@ class HttpLayoutDetector:
             )
             resp.raise_for_status()
         except httpx.HTTPError as exc:
-            raise DependencyError("layout", f"{self.url}: {exc}") from exc
+            raise classify_http_error("layout", self.url, exc) from exc
         k = image.px_to_pt
         blocks = []
         for item in resp.json()["blocks"]:

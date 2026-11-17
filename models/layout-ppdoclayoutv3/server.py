@@ -11,16 +11,13 @@ téže oblasti s různou třídou (IoU ≥ DEDUPE_IOU) se sloučí na tu s vyš�
 
 from __future__ import annotations
 
-import base64
-import io
 import os
 import threading
 import time
 
 import torch
+from common import PredictRequest, decode_image, dedupe
 from fastapi import FastAPI, HTTPException
-from PIL import Image, UnidentifiedImageError
-from pydantic import BaseModel
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
 
 MODEL_ID = os.environ.get("MODEL_ID", "PaddlePaddle/PP-DocLayoutV3_safetensors")
@@ -47,33 +44,6 @@ def startup() -> None:
     _load()
 
 
-class PredictRequest(BaseModel):
-    image_png_base64: str
-
-
-def _iou(a: list[float], b: list[float]) -> float:
-    w = min(a[2], b[2]) - max(a[0], b[0])
-    h = min(a[3], b[3]) - max(a[1], b[1])
-    if w <= 0 or h <= 0:
-        return 0.0
-    inter = w * h
-    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
-    return inter / union if union > 0 else 0.0
-
-
-def _dedupe(blocks: list[dict]) -> list[dict]:
-    keep: list[dict] = []
-    for block in blocks:
-        twin = next((k for k in keep if _iou(k["bbox_px"], block["bbox_px"]) >= DEDUPE_IOU), None)
-        if twin is None:
-            keep.append(block)
-        elif block["confidence"] > twin["confidence"]:
-            keep[keep.index(twin)] = {**block, "order": twin["order"]}
-    for i, block in enumerate(keep):
-        block["order"] = i
-    return keep
-
-
 @app.get("/health")
 def health() -> dict:
     if "model" not in _state:
@@ -97,13 +67,7 @@ def info() -> dict:
 
 @app.post("/predict")
 def predict(req: PredictRequest) -> dict:
-    try:
-        image = Image.open(io.BytesIO(base64.b64decode(req.image_png_base64)))
-        if image.width * image.height > MAX_PIXELS:
-            raise HTTPException(413, f"obrázek má víc než {MAX_PIXELS} pixelů")
-        image = image.convert("RGB")
-    except (UnidentifiedImageError, ValueError) as exc:
-        raise HTTPException(400, f"neplatný obrázek: {exc}") from exc
+    image = decode_image(req, MAX_PIXELS)
 
     model, processor = _state["model"], _state["processor"]
     with _lock, torch.inference_mode():
@@ -125,4 +89,4 @@ def predict(req: PredictRequest) -> dict:
             "order": i,  # výsledky jsou seřazené podle pořadí čtení z modelu
             "polygon_px": polygon.tolist() if polygon is not None else None,
         })
-    return {"width_px": image.width, "height_px": image.height, "blocks": _dedupe(blocks)}
+    return {"width_px": image.width, "height_px": image.height, "blocks": dedupe(blocks, DEDUPE_IOU)}

@@ -2,7 +2,7 @@
  "openapi": "3.1.0",
  "info": {
   "title": "aiscr-atr",
-  "description": "Otevřená služba ATR: z dokumentu (PDF, sken, obrázek) vytvoří `atr/docproc-json` (rozvržení, bloky s typem, polohou, pořadím čtení a textem; routing každé strany). Chyby mají tvar `{status, reason, detail}`: 400 neplatný požadavek, 422 nečitelný vstup nebo selhání rozpoznání (`all_engines_failed`), 503 nedostupná služba modelu (zopakovat), 500 neplatný výstup.",
+  "description": "Otevřená služba ATR: z dokumentu (PDF, sken, obrázek) vytvoří `atr/docproc-json` (rozvržení, bloky s typem, polohou, pořadím čtení a textem; routing každé strany). Chyby mají tvar `{status, reason, detail}`: 400 neplatný požadavek, 413 příliš velký soubor, 422 nečitelný vstup nebo trvalé selhání zpracování (`all_engines_failed`, `layout_rejected`; opakování nepomůže), 503 dočasně nedostupná služba modelu (zopakovat), 500 neplatný výstup.",
   "license": {
    "name": "MIT"
   },

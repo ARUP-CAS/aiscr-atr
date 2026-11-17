@@ -39,6 +39,8 @@ class PipelineConfig:
     recognize: dict[BlockType, str]
     recognizers: dict[str, AdapterSpec]
     render_dpi: float = 200.0
+    # Strop pixelů vykreslené strany; velké formáty (A0) se vykreslí s nižším DPI.
+    max_page_pixels: int = 40_000_000
     crop_padding_pt: float = 2.0
     # Kolik bloků jedné strany se rozpoznává souběžně (služby modelů zvládají dávky).
     recognize_concurrency: int = 1
@@ -63,7 +65,8 @@ def _spec(raw: Any, where: str) -> AdapterSpec:
 
 def parse(raw: dict[str, Any]) -> PipelineConfig:
     ports = raw.get("ports") or {}
-    unknown = set(ports) - set(registry.PORTS) - {"recognizer"}
+    # Rozpoznávače se konfigurují zvlášť v `recognizers`, mezi porty nepatří.
+    unknown = set(ports) - (set(registry.PORTS) - {"recognizer"})
     if unknown:
         raise ConfigError(f"neznámé porty v konfiguraci: {', '.join(sorted(unknown))}")
     missing = [p for p in REQUIRED_PORTS if p not in ports]
@@ -90,6 +93,7 @@ def parse(raw: dict[str, Any]) -> PipelineConfig:
         recognize=recognize,
         recognizers=recognizers,
         render_dpi=float(pipeline.get("render_dpi", 200)),
+        max_page_pixels=int(pipeline.get("max_page_pixels", 40_000_000)),
         crop_padding_pt=float(pipeline.get("crop_padding_pt", 2)),
         recognize_concurrency=int(pipeline.get("recognize_concurrency", 1)),
         mask_neighbours=bool(pipeline.get("mask_neighbours", True)),

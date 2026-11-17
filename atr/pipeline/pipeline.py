@@ -11,10 +11,11 @@ a `config/pipeline.yaml`.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from atr.config import Components, PipelineConfig
-from atr.ports.errors import DependencyError
+from atr.ports.errors import DependencyError, ProcessingError
 from atr.ports.types import (
     BBox,
     Block,
@@ -30,7 +31,7 @@ from atr.ports.types import (
     Route,
     RouteDecision,
 )
-from atr.render_utils import crop
+from atr.render_utils import crop, decode
 
 
 class PipelineError(RuntimeError):
@@ -96,7 +97,7 @@ class Pipeline:
         page_class = None
         classifier = self.c.get("page_classifier")
         if classifier is not None:
-            image = self.c["renderer"].render(doc, number, self.config.render_dpi)
+            image = self._render(doc, geometry)
             page_class = classifier.classify(image)
 
         decision = self.c["router"].decide(geometry, judgement, forced_reason, page_class)
@@ -105,8 +106,12 @@ class Pipeline:
             return page
 
         if image is None:
-            image = self.c["renderer"].render(doc, number, self.config.render_dpi)
-        layout = self._layout(image, geometry)
+            image = self._render(doc, geometry)
+        try:
+            layout = self._layout(image, geometry)
+        except ProcessingError as exc:
+            # Služba rozvržení stranu trvale odmítla; opakování nepomůže.
+            raise PipelineError(exc.reason, exc.detail, [number]) from exc
 
         if decision.route is Route.OCR and not layout:
             # Strana bez textové vrstvy, na které rozvržení nic nenašlo, je prázdná.
@@ -129,9 +134,10 @@ class Pipeline:
         if decision.route is not Route.DIGITAL:
             try:
                 jobs = [(block, i) for i, block in enumerate(layout)]
+                decoded = decode(image)  # stranu dekódovat jednou, ne pro každý blok
 
                 def run(job: tuple[LayoutBlock, int]) -> Block:
-                    return self._recognize(image, job[0], job[1], decision.route, layout)
+                    return self._recognize(image, job[0], job[1], decision.route, layout, decoded)
 
                 if self.config.recognize_concurrency > 1 and len(jobs) > 1:
                     with ThreadPoolExecutor(self.config.recognize_concurrency) as pool:
@@ -146,6 +152,14 @@ class Pipeline:
 
         self._languages(page)
         return page
+
+    def _render(self, doc, geometry) -> PageImage:
+        """Vykreslí stranu; u velkých formátů sníží DPI, aby nepřekročila `max_page_pixels`."""
+        dpi = self.config.render_dpi
+        pixels = (geometry.width / 72.0 * dpi) * (geometry.height / 72.0 * dpi)
+        if pixels > self.config.max_page_pixels:
+            dpi *= (self.config.max_page_pixels / pixels) ** 0.5
+        return self.c["renderer"].render(doc, geometry.number, dpi)
 
     def _text_coverage(self, layout: list[LayoutBlock], blocks: list[Block]) -> float | None:
         """Podíl plochy čitelných bloků rozvržení, do kterých textová vrstva dala text."""
@@ -167,10 +181,12 @@ class Pipeline:
         reading = self.c.get("reading_order")
         if reading is not None:
             return reading.order(blocks, geometry)
-        return sorted(blocks, key=_reading_key)
+        # Bez komponenty pořadí čtení: pořadí z rozvržení, přečíslované na 0..n-1
+        # (úprava geometrie nebo práh jistoty mohly bloky vypustit).
+        return [replace(b, order=i) for i, b in enumerate(sorted(blocks, key=_reading_key))]
 
     def _recognize(self, image: PageImage, block: LayoutBlock, order: int, route: Route,
-                   page_blocks: list[LayoutBlock]) -> Block:
+                   page_blocks: list[LayoutBlock], decoded=None) -> Block:
         out = Block(type=block.type, bbox=block.bbox, confidence=block.confidence,
                     order=block.order if block.order is not None else order)
         name = self.config.recognize.get(block.type)
@@ -181,7 +197,7 @@ class Pipeline:
         content = self.c.recognizers[name].recognize(
             crop(image, block.bbox, self.config.crop_padding_pt,
                  mask=[b.bbox for b in page_blocks if b is not block and b.type is not BlockType.FIGURE]
-                 if self.config.mask_neighbours else None),
+                 if self.config.mask_neighbours else None, decoded=decoded),
             block)
         out.text, out.format, out.text_source = content.text, content.format, route
         out.lines = _derived_lines(content.text, block.bbox) if content.format == "text" else []

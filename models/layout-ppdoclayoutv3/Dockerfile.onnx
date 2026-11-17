@@ -17,7 +17,7 @@ COPY requirements-onnx.txt /tmp/
 RUN pip install -r /tmp/requirements-onnx.txt
 COPY --from=export /opt/model /opt/model
 WORKDIR /app
-COPY server_onnx.py .
+COPY common.py server_onnx.py ./
 RUN useradd --uid 1000 --create-home layout
 USER layout
 EXPOSE 8000

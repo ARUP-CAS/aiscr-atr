@@ -33,12 +33,13 @@ def inspect(args: argparse.Namespace) -> int:
     judge = registry.create("text_layer_judge", "rules")
     router = registry.create("router", "rules")
     renderer = registry.create("renderer", "pdfium")
-    doc = source.open(_document(args.file, args.forced))
+    document = _document(args.file, args.forced)
+    doc = source.open(document)
     try:
         for g in doc.pages:
             layer = reader.read(doc, g.number)
             verdict = judge.judge(layer, g)
-            decision = router.decide(g, verdict, _document(args.file, args.forced).forced_pages.get(g.number),
+            decision = router.decide(g, verdict, document.forced_pages.get(g.number),
                                      None)
             print(f"strana {g.number}: {g.width:.1f} × {g.height:.1f} pt, otočení {g.rotation}°, "
                   f"UserUnit {g.user_unit}" + (f", obrázek {g.source_pixels} px" if g.source_pixels else ""))
